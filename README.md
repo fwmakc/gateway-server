@@ -34,12 +34,12 @@ docker-compose down
 
 ## Services
 
-Each service has its own directory with Dockerfile (TODO):
-- `../auth-server/` — OAuth2 authorization server
-- `../api-server/` — Core CRUD API
-- `../file-server/` — File upload and processing
-- `../message-server/` — Email and notifications
-- `../chat-server/` — WebSocket chat
+Each service has its own directory with multi-stage Dockerfile:
+- `../auth-server/` — OAuth2 authorization server (port 3001)
+- `../api-server/` — Core CRUD API (port 5000)
+- `../file-server/` — File upload and processing (port 3002)
+- `../message-server/` — Email and notifications (port 3003)
+- `../chat-server/` — WebSocket chat (port 3004)
 
 ## Infrastructure
 
