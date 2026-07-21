@@ -1,5 +1,7 @@
 services:
-  # --- Gateway ---
+  # ═══════════════════════════════════════════════════════════════
+  # GATEWAY
+  # ═══════════════════════════════════════════════════════════════
   nginx:
     image: nginx:alpine
     ports:
@@ -10,12 +12,18 @@ services:
     depends_on:
       - auth-server
       - api-server
-      - file-server
-      - message-server
-      - chat-server
+      # - file-server
+      # - message-server
+      # - chat-server
     restart: unless-stopped
 
+  # ═══════════════════════════════════════════════════════════════
+  # CORE SERVICES (stable, shared across projects)
+  # ═══════════════════════════════════════════════════════════════
+
   # --- Auth Server (port 3001) ---
+  # OAuth2 authorization server, JWT/JWKS, social login.
+  # Required by all other services.
   auth-server:
     build:
       context: ..
@@ -36,6 +44,7 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Social SSO (set real values in production)
       - LEADER_CLIENT_ID=${LEADER_CLIENT_ID:-dummy-client-id}
       - LEADER_CLIENT_SECRET=${LEADER_CLIENT_SECRET:-dummy-client-secret}
       - LEADER_CLIENT_REDIRECT=${LEADER_CLIENT_REDIRECT:-http://localhost/auth/leader/redirect}
@@ -54,7 +63,13 @@ services:
       - redis
     restart: unless-stopped
 
+  # ═══════════════════════════════════════════════════════════════
+  # DOMAIN SERVICE (project-specific — clone api-server per project)
+  # ═══════════════════════════════════════════════════════════════
+
   # --- API Server (port 5000) ---
+  # CRUD engine for domain entities (persons, posts, settings, etc.).
+  # Clone this service for new projects and replace entities.
   api-server:
     build:
       context: ..
@@ -80,7 +95,13 @@ services:
       - auth-server
     restart: unless-stopped
 
+  # ═══════════════════════════════════════════════════════════════
+  # OPTIONAL SERVICES (enable as needed)
+  # ═══════════════════════════════════════════════════════════════
+
   # --- File Server (port 3002) ---
+  # File upload, image resize, static file serving.
+  # Enable if your project needs file uploads.
   file-server:
     build:
       context: ..
@@ -97,6 +118,8 @@ services:
     restart: unless-stopped
 
   # --- Message Server (port 3003) ---
+  # Email sending, notifications, event-driven messaging via Redis.
+  # Enable if your project needs email/notifications.
   message-server:
     build:
       context: ..
@@ -113,6 +136,8 @@ services:
     restart: unless-stopped
 
   # --- Chat Server (port 3004) ---
+  # WebSocket chat (Socket.IO).
+  # Enable if your project needs real-time chat.
   chat-server:
     build:
       context: ..
@@ -127,6 +152,10 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE
+  # ═══════════════════════════════════════════════════════════════
 
   # --- PostgreSQL ---
   postgres:
