@@ -1,101 +1,257 @@
-# Gateway — Nginx Reverse Proxy + Docker Compose
+# FWMAKC Microservices Stack
 
-Single entry point (port 80) for the microservices stack. Path-based routing, rate limiting, CORS, WebSocket support.
+NestJS + TypeScript microservices architecture with a **Core + Domain** separation. Core services (auth, events, shared CRUD engine) are stable infrastructure reused across projects. Domain services (api-server) are cloned per project with custom entities.
 
-## Architecture: Core + Domain
+## Architecture
 
 ```
-CORE (stable, shared across projects)
-  auth-server/     OAuth2, JWT/JWKS, social login
-  shared/          @core/common (CRUD engine, guards, event bus)
-  gateway/         this repo (nginx + docker-compose)
-
-DOMAIN (clone per project)
-  api-server/      CRUD entities (persons, posts, settings, ...)
-
-OPTIONAL (enable as needed)
-  file-server/     file upload + resize
-  message-server/  email + notifications
-  chat-server/     WebSocket chat
+                         ┌──────────┐
+                         │  nginx   │ :80
+                         │ gateway  │
+                         └────┬─────┘
+           ┌─────────────────┼──────────────────┐
+           │                 │                  │
+    ┌──────▼──────┐  ┌───────▼───────┐  ┌──────▼──────┐
+    │ auth-server │  │  api-server   │  │   optional  │
+    │    :3001    │  │     :5000     │  │ file/msg/chat│
+    └──────┬──────┘  └───────┬───────┘  └─────────────┘
+           │                 │
+           │     ┌───────────┘
+           │     │
+    ┌──────▼─────▼──┐
+    │ event-server  │ :3005 (internal, not proxied by nginx)
+    │ webhook broker│
+    └──────┬────────┘
+           │
+    ┌──────▼──────┐
+    │  postgres   │ :5432
+    │  redis :6379│
+    └─────────────┘
 ```
+
+### Repository Map
+
+| Repo | Role | Port | CI |
+|------|------|------|----|
+| [`gateway`](.) | nginx reverse proxy + docker-compose | 80 | — |
+| [`auth-server`](https://github.com/fwmakc/auth-server) | OAuth2, JWT (RS256), JWKS, social SSO | 3001 | [![Tests](https://github.com/fwmakc/auth-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/auth-server/actions/workflows/test.yml) |
+| [`event-server`](https://github.com/fwmakc/event-server) | Webhook-based pub/sub event broker | 3005 | [![Tests](https://github.com/fwmakc/event-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/event-server/actions/workflows/test.yml) |
+| [`shared`](https://github.com/fwmakc/shared) | `@core/common` — CRUD engine, guards, decorators | — | — |
+| [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
+| [`file-server`](https://github.com/fwmakc/file-server) | File upload, image resize | 3002 | — |
+| [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
+| [`chat-server`](https://github.com/fwmakc/chat-server) | WebSocket chat (Socket.IO) | 3004 | — |
 
 ### Core vs Domain
 
-**Core services** are stable infrastructure. They don't change between projects:
-- `auth-server` — OAuth2 provider, JWT signing (RS256), social SSO
-- `shared` — `@core/common` npm package: CRUD base classes, decorators, guards, event bus
-- `gateway` — nginx routing + docker-compose orchestration
+**Core** — stable infrastructure, doesn't change between projects:
+- `auth-server` — OAuth2 provider, JWT signing (RS256 with auto-generated keys), social SSO (Google, Leader-ID, UNTI/2030)
+- `event-server` — central event broker. Services publish events via HTTP; subscribers register webhook URLs and receive deliveries with retry + exponential backoff
+- `shared` — `@core/common` npm package: auto-generating CRUD controllers, access control guards, column factories, Swagger docs
+- `gateway` — nginx routing, rate limiting, CORS, WebSocket support
 
-**Domain service** is the project-specific part. Clone `api-server` for each new project:
-- Replace entities in `src/db/` with your own
-- Entities like `persons`, `posts`, `categories`, `tags` serve as reference examples
-- Infrastructure (JWT verification, DB config, Swagger, Sentry) stays the same
+**Domain** — clone per project:
+- `api-server` — defines project-specific entities. The reference implementation includes `persons`, `posts`, `categories`, `tags`. Replace these with your own
 
-## Routing
+**Optional** — enable as needed:
+- `file-server` — file upload + resize
+- `message-server` — email sending, subscribes to event-server webhooks
+- `chat-server` — real-time chat via Socket.IO (requires Redis for multi-instance adapter)
 
-| Path | Service | Port |
-|------|---------|------|
-| `/account`, `/token`, `/auth`, `/.well-known` | auth-server | 3001 |
-| `/files`, `/uploads` | file-server | 3002 |
-| `/mail` | message-server | 3003 |
-| `/socket.io/` | chat-server | 3004 |
-| Everything else | api-server | 5000 |
+## Event Flow
 
-## Usage
+Event-server replaces the old Redis Streams event bus with a webhook-based approach:
+
+```
+auth-server                    event-server                   message-server
+    │                               │                               │
+    │  POST /events                 │                               │
+    │  { type: "account.registered",│                               │
+    │    data: {...} }              │                               │
+    │ ────────────────────────────► │                               │
+    │                               │  stores Event +               │
+    │                               │  creates Deliveries           │
+    │                               │  for all Subscribers          │
+    │                               │                               │
+    │                               │  worker picks up Delivery     │
+    │                               │  POST /mail (webhook)         │
+    │                               │ ────────────────────────────► │
+    │                               │                               │
+    │                               │  ◄── 200 OK ───────────────── │
+    │                               │  marks Delivery delivered     │
+```
+
+- **Publish**: any service sends `POST /events` to event-server with `{ type, data }`
+- **Subscribe**: services register `POST /subscribers` with a webhook URL and event filter
+- **Delivery**: event-server's background worker delivers via HTTP with retry (configurable interval, batch size, exponential backoff)
+
+## Access Control Model
+
+Five independent access levels per CRUD operation, defined in `@core/common`:
+
+| Level | Behavior |
+|-------|----------|
+| `public` | No authentication required |
+| `account` | Any authenticated user |
+| `owner` | Only the entity's owner (via relation binding) |
+| `admin` | Superuser accounts only |
+| `closed` | Endpoint is not generated at all |
+
+Applied via `@EntityController` options:
+
+```typescript
+@EntityController({
+  name: "posts",
+  dto: PostDto,
+  entity: PostEntity,
+  operations: {
+    create: "account",   // any logged-in user
+    read: "public",      // anyone can read
+    update: "owner",     // only the author
+    delete: "admin",     // only admins
+  },
+})
+export class PostController extends BaseEntityController {
+  constructor(service: CommonService<PostDto, PostEntity>) {
+    super(service);
+  }
+}
+```
+
+This auto-generates REST endpoints (`GET /posts`, `GET /posts/:id`, `POST /posts`, `PATCH /posts/:id`, `DELETE /posts/:id`, plus `count`, `find/first`, `find/many/:ids`, `position/sort`, `position/move/:id`) with the correct guards and Swagger docs applied per operation.
+
+## @core/common
+
+The shared npm package provides:
+
+- **`EntityController`** — class decorator that generates a full CRUD controller with guards + Swagger docs
+- **`CommonService<Dto, Entity>`** — generic service with find/findOne/create/update/remove/sortPosition
+- **`CommonDto`** — base DTO class
+- **Column factories** — `IdColumn`, `VarcharColumn`, `BooleanColumn`, `JsonColumn`, `CreatedColumn`, `PositionAscColumn`, etc.
+- **Guards** — `Account()` (JWT auth), `Secure`, `SimpleSecure`
+- **Decorators** — `@Self()` (extract user from request), `@Data()` (merge query+body), `@FieldAccess({ read, write })`
+- **`PermissionRegistry`** — in-memory map of entity access levels
+
+Installed as `file:../shared/core-common-1.0.0.tgz` (built from source via `npm pack`).
+
+## Nginx Routing
+
+| Path | Service |
+|------|---------|
+| `/account`, `/token`, `/auth`, `/.well-known` | auth-server |
+| `/swagger`, `/redoc` | auth-server |
+| `/files`, `/uploads` | file-server |
+| `/mail` | message-server |
+| `/socket.io/` | chat-server (WebSocket upgrade) |
+| Everything else (`/`) | api-server |
+
+Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
+
+## Quick Start
+
+### Prerequisites
+
+- Docker + Docker Compose
+- All repos cloned as sibling directories:
+  ```
+  servers/
+    gateway/      ← you are here
+    auth-server/
+    api-server/
+    event-server/
+    shared/
+    file-server/  (optional)
+    message-server/ (optional)
+    chat-server/  (optional)
+  ```
+
+### Run
 
 ```bash
-# Start all services
+# Copy env
+cp .env.example .env
+
+# Start everything
 docker compose up -d
 
-# Start only core + domain (no optional services)
-docker compose up -d nginx auth-server api-server postgres redis
+# Or start only core + domain (skip optional services)
+docker compose up -d nginx auth-server event-server api-server postgres
+
+# Check status
+docker compose ps
 
 # View logs
-docker compose logs -f api-server
-
-# Stop
-docker compose down
+docker compose logs -f auth-server
 ```
+
+Services available at `http://localhost` (port 80).
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INTERNAL_API_KEY` | `changeme` | Shared key for service-to-service auth |
+| `SESSION_SECRET` | `dev-session-secret` | Session encryption key |
+| `LEADER_CLIENT_ID` | `dummy-client-id` | Leader-ID OAuth |
+| `UNTI_CLIENT_ID` | `dummy-client-id` | UNTI/2035 OAuth |
+| `GOOGLE_CLIENT_ID` | `dummy-client-id` | Google OAuth |
+
+## Infrastructure
+
+### PostgreSQL 16 (port 5432)
+
+User: `root` / Password: `1234`
+
+Databases (auto-created by `init-databases.sh`):
+
+| Database | Used by |
+|----------|---------|
+| `auth_server` | auth-server |
+| `api_server` | api-server |
+| `event_server` | event-server |
+| `api_server_test` | api-server test suite |
+| `api_server_http_test` | api-server HTTP access control tests |
+
+### Redis 7 (port 6379)
+
+Used only by chat-server (Socket.IO adapter for multi-instance). Not required if chat-server is disabled.
 
 ## Starting a New Project
 
-1. Clone `api-server` repo and rename it:
+1. **Clone api-server:**
    ```bash
    git clone https://github.com/fwmakc/api-server.git my-project-server
    ```
 
-2. Update `docker-compose.yml` in gateway:
-   - Rename `api-server` service to `my-project-server`
-   - Update build context and dockerfile path
-   - Uncomment optional services if needed
-
-3. Add your entities in `src/db/`:
+2. **Add your entities** in `src/db/`:
    ```
    src/db/
      products/
-       products.entity.ts
-       products.dto.ts
-       products.service.ts
-       products.controller.ts
+       products.entity.ts    # TypeORM entity with @Column factories
+       products.dto.ts       # DTO extending CommonDto
+       products.service.ts   # extends CommonService<ProductDto, ProductEntity>
+       products.controller.ts # @EntityController({ ... })
    ```
 
-4. Register modules in `src/app.imports.ts`
+3. **Register module** in `src/app.imports.ts`
 
-5. `docker compose up -d`
+4. **Update `docker-compose.yml`** in gateway:
+   - Rename `api-server` service to your project name
+   - Update build context and Dockerfile path
 
-## Infrastructure
+5. **Start:**
+   ```bash
+   docker compose up -d
+   ```
 
-- **PostgreSQL 16** (port 5432) — two databases: `auth_server` + `api_server`
-- **Redis 7** (port 6379) — event bus + job queues
+## Testing
 
-## Environment Variables
+Each service has its own test suite run via GitHub Actions CI:
 
-See `.env.example` for all supported variables. Key ones:
+| Service | Tests | Command |
+|---------|-------|---------|
+| auth-server | 41 | `npm test` (cross-env TZ=UTC jest --runInBand) |
+| api-server | 368 | `npm test` (jest --runInBand) |
+| event-server | 33 | `npm test` (jest --runInBand) |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SESSION_SECRET` | `dev-session-secret` | Session encryption key |
-| `INTERNAL_API_KEY` | `changeme` | Inter-service HTTP auth |
-| `LEADER_CLIENT_ID` | `dummy-client-id` | Leader-ID OAuth |
-| `GOOGLE_CLIENT_ID` | `dummy-client-id` | Google OAuth |
-| `UNTI_CLIENT_ID` | `dummy-client-id` | UNTI/2035 OAuth |
+Tests use real PostgreSQL (not mocked) with `dropSchema: true` + `synchronize: true` for clean state.
