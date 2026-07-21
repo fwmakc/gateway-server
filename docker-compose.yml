@@ -42,8 +42,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - EVENT_SERVER_URL=http://event-server:3005
       # Social SSO (set real values in production)
       - LEADER_CLIENT_ID=${LEADER_CLIENT_ID:-dummy-client-id}
       - LEADER_CLIENT_SECRET=${LEADER_CLIENT_SECRET:-dummy-client-secret}
@@ -60,7 +59,32 @@ services:
       - OAUTH_SERVER=${OAUTH_SERVER:-http://auth-server:3001}
     depends_on:
       - postgres
-      - redis
+    restart: unless-stopped
+
+  # --- Event Server (port 3005) ---
+  # Central event broker. Webhook-based publish/subscribe.
+  # Replaces Redis Streams event bus. Internal only (not in nginx).
+  event-server:
+    build:
+      context: ..
+      dockerfile: event-server/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - IP=0.0.0.0
+      - PORT=3005
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=event_server
+      - DB_USER=root
+      - DB_PASSWORD=1234
+      - DB_SYNCHRONIZE=true
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - WORKER_INTERVAL_MS=2000
+      - CLEANUP_INTERVAL_MS=3600000
+      - BATCH_SIZE=10
+    depends_on:
+      - postgres
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -87,11 +111,9 @@ services:
       - DB_SYNCHRONIZE=true
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - EVENT_SERVER_URL=http://event-server:3005
     depends_on:
       - postgres
-      - redis
       - auth-server
     restart: unless-stopped
 
@@ -118,7 +140,7 @@ services:
     restart: unless-stopped
 
   # --- Message Server (port 3003) ---
-  # Email sending, notifications, event-driven messaging via Redis.
+  # Email sending, notifications. Subscribes to events from event-server.
   # Enable if your project needs email/notifications.
   message-server:
     build:
@@ -129,10 +151,10 @@ services:
       - IP=0.0.0.0
       - PORT=3003
       - AUTH_SERVER_URL=http://auth-server:3001
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - EVENT_SERVER_URL=http://event-server:3005
     depends_on:
-      - redis
+      - event-server
     restart: unless-stopped
 
   # --- Chat Server (port 3004) ---
@@ -147,6 +169,8 @@ services:
       - IP=0.0.0.0
       - PORT=3004
       - AUTH_SERVER_URL=http://auth-server:3001
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - EVENT_SERVER_URL=http://event-server:3005
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     depends_on:
@@ -170,7 +194,7 @@ services:
       - "5432:5432"
     restart: unless-stopped
 
-  # --- Redis (event bus + job queues) ---
+  # --- Redis (Socket.IO adapter for multi-instance chat-server) ---
   redis:
     image: redis:7-alpine
     ports:
