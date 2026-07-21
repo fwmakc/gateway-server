@@ -87,17 +87,19 @@ auth-server                    event-server                   message-server
 
 ## Access Control Model
 
-Five independent access levels per CRUD operation, defined in `@core/common`:
+Five independent restriction levels per CRUD operation. Each operation (create, read, update, delete) gets its **own** level — they are configured independently and are **not cumulative**.
 
-| Level | Behavior |
-|-------|----------|
-| `public` | No authentication required |
-| `account` | Any authenticated user |
-| `owner` | Only the entity's owner (via relation binding) |
-| `admin` | Superuser accounts only |
-| `closed` | Endpoint is not generated at all |
+| Level | Authentication | Row scoping |
+|-------|---------------|-------------|
+| `public` | Token optional | None |
+| `account` | Token required (401) | None — sees all records |
+| `owner` | Token required (401) | `WHERE account.id = caller.id` |
+| `admin` | Token required (401) | 403 if `!isSuperuser` |
+| `closed` | Route not generated | — |
 
-Applied via `@EntityController` options:
+**Full documentation**: [shared/README.md — Access Control Model](https://github.com/fwmakc/shared/blob/master/README.md#access-control-model)
+
+Quick example:
 
 ```typescript
 @EntityController({
@@ -105,32 +107,21 @@ Applied via `@EntityController` options:
   dto: PostDto,
   entity: PostEntity,
   operations: {
-    create: "account",   // any logged-in user
-    read: "public",      // anyone can read
-    update: "owner",     // only the author
-    delete: "admin",     // only admins
+    create: "account",
+    read: "public",
+    update: "owner",
+    delete: "admin",
   },
 })
-export class PostController extends BaseEntityController {
-  constructor(service: CommonService<PostDto, PostEntity>) {
-    super(service);
-  }
-}
 ```
-
-This auto-generates REST endpoints (`GET /posts`, `GET /posts/:id`, `POST /posts`, `PATCH /posts/:id`, `DELETE /posts/:id`, plus `count`, `find/first`, `find/many/:ids`, `position/sort`, `position/move/:id`) with the correct guards and Swagger docs applied per operation.
 
 ## @core/common
 
-The shared npm package provides:
+The shared npm package provides auto-generating CRUD controllers with per-operation access control, Swagger docs, and TypeORM row-level security.
 
-- **`EntityController`** — class decorator that generates a full CRUD controller with guards + Swagger docs
-- **`CommonService<Dto, Entity>`** — generic service with find/findOne/create/update/remove/sortPosition
-- **`CommonDto`** — base DTO class
-- **Column factories** — `IdColumn`, `VarcharColumn`, `BooleanColumn`, `JsonColumn`, `CreatedColumn`, `PositionAscColumn`, etc.
-- **Guards** — `Account()` (JWT auth), `Secure`, `SimpleSecure`
-- **Decorators** — `@Self()` (extract user from request), `@Data()` (merge query+body), `@FieldAccess({ read, write })`
-- **`PermissionRegistry`** — in-memory map of entity access levels
+**Full API reference**: [shared/README.md](https://github.com/fwmakc/shared/blob/master/README.md)
+
+Key exports: `EntityController`, `CommonService`, `CommonDto`, `Account()`, `Self()`, `FieldAccess`, column factories, `PermissionRegistry`.
 
 Installed as `file:../shared/core-common-1.0.0.tgz` (built from source via `npm pack`).
 
