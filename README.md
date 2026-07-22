@@ -36,7 +36,7 @@ NestJS + TypeScript microservices architecture with a **Core + Domain** separati
 | [`gateway`](.) | nginx reverse proxy + docker-compose | 80 | — |
 | [`auth-server`](https://github.com/fwmakc/auth-server) | OAuth2, JWT (RS256), JWKS, social SSO | 3001 | [![Tests](https://github.com/fwmakc/auth-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/auth-server/actions/workflows/test.yml) |
 | [`event-server`](https://github.com/fwmakc/event-server) | Webhook-based pub/sub event broker | 3005 | [![Tests](https://github.com/fwmakc/event-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/event-server/actions/workflows/test.yml) |
-| [`shared`](https://github.com/fwmakc/api-server-toolkit) | `api-server-toolkit` — CRUD engine, guards, decorators | — | — |
+| [`api-server-toolkit`](https://github.com/fwmakc/api-server-toolkit) | CRUD engine, guards, decorators | — | — |
 | [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
 | [`file-server`](https://github.com/fwmakc/file-server) | File upload, image resize | 3002 | — |
 | [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
@@ -47,7 +47,7 @@ NestJS + TypeScript microservices architecture with a **Core + Domain** separati
 **Core** — stable infrastructure, doesn't change between projects:
 - `auth-server` — OAuth2 provider, JWT signing (RS256 with auto-generated keys), social SSO (Google, Leader-ID, UNTI/2030)
 - `event-server` — central event broker. Services publish events via HTTP; subscribers register webhook URLs and receive deliveries with retry + exponential backoff
-- `shared` — `api-server-toolkit` npm package: auto-generating CRUD controllers, access control guards, column factories, Swagger docs
+- `api-server-toolkit` — npm package: auto-generating CRUD controllers, access control guards, column factories, Swagger docs
 - `gateway` — nginx routing, rate limiting, CORS, WebSocket support
 
 **Domain** — clone per project:
