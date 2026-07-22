@@ -36,7 +36,7 @@ NestJS + TypeScript microservices architecture with a **Core + Domain** separati
 | [`gateway`](.) | nginx reverse proxy + docker-compose | 80 | — |
 | [`auth-server`](https://github.com/fwmakc/auth-server) | OAuth2, JWT (RS256), JWKS, social SSO | 3001 | [![Tests](https://github.com/fwmakc/auth-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/auth-server/actions/workflows/test.yml) |
 | [`event-server`](https://github.com/fwmakc/event-server) | Webhook-based pub/sub event broker | 3005 | [![Tests](https://github.com/fwmakc/event-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/event-server/actions/workflows/test.yml) |
-| [`shared`](https://github.com/fwmakc/shared) | `@core/common` — CRUD engine, guards, decorators | — | — |
+| [`shared`](https://github.com/fwmakc/api-server-toolkit) | `api-server-toolkit` — CRUD engine, guards, decorators | — | — |
 | [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
 | [`file-server`](https://github.com/fwmakc/file-server) | File upload, image resize | 3002 | — |
 | [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
@@ -47,7 +47,7 @@ NestJS + TypeScript microservices architecture with a **Core + Domain** separati
 **Core** — stable infrastructure, doesn't change between projects:
 - `auth-server` — OAuth2 provider, JWT signing (RS256 with auto-generated keys), social SSO (Google, Leader-ID, UNTI/2030)
 - `event-server` — central event broker. Services publish events via HTTP; subscribers register webhook URLs and receive deliveries with retry + exponential backoff
-- `shared` — `@core/common` npm package: auto-generating CRUD controllers, access control guards, column factories, Swagger docs
+- `shared` — `api-server-toolkit` npm package: auto-generating CRUD controllers, access control guards, column factories, Swagger docs
 - `gateway` — nginx routing, rate limiting, CORS, WebSocket support
 
 **Domain** — clone per project:
@@ -97,7 +97,7 @@ Five independent restriction levels per CRUD operation. Each operation (create, 
 | `admin` | Token required (401) | 403 if `!isSuperuser` |
 | `closed` | Route not generated | — |
 
-**Full documentation**: [shared/README.md — Access Control Model](https://github.com/fwmakc/shared/blob/master/README.md#access-control-model)
+**Full documentation**: [api-server-toolkit/README.md — Access Control Model](https://github.com/fwmakc/api-server-toolkit/blob/master/README.md#access-control-model)
 
 Quick example:
 
@@ -115,15 +115,15 @@ Quick example:
 })
 ```
 
-## @core/common
+## api-server-toolkit
 
 The shared npm package provides auto-generating CRUD controllers with per-operation access control, Swagger docs, and TypeORM row-level security.
 
-**Full API reference**: [shared/README.md](https://github.com/fwmakc/shared/blob/master/README.md)
+**Full API reference**: [api-server-toolkit/README.md](https://github.com/fwmakc/api-server-toolkit/blob/master/README.md)
 
 Key exports: `EntityController`, `CommonService`, `CommonDto`, `Account()`, `Self()`, `FieldAccess`, column factories, `PermissionRegistry`.
 
-Installed as `file:../shared/core-common-1.0.0.tgz` (built from source via `npm pack`).
+Installed as `github:fwmakc/api-server-toolkit#master` (auto-built via `prepare` script).
 
 ## Nginx Routing
 
@@ -150,7 +150,7 @@ Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
     auth-server/
     api-server/
     event-server/
-    shared/
+    api-server-toolkit/
     file-server/  (optional)
     message-server/ (optional)
     chat-server/  (optional)

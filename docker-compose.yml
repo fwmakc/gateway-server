@@ -26,8 +26,8 @@ services:
   # Required by all other services.
   auth-server:
     build:
-      context: ..
-      dockerfile: auth-server/Dockerfile
+      context: ../auth-server
+      dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
       - IP=0.0.0.0
@@ -66,8 +66,8 @@ services:
   # Replaces Redis Streams event bus. Internal only (not in nginx).
   event-server:
     build:
-      context: ..
-      dockerfile: event-server/Dockerfile
+      context: ../event-server
+      dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
       - IP=0.0.0.0
@@ -96,8 +96,8 @@ services:
   # Clone this service for new projects and replace entities.
   api-server:
     build:
-      context: ..
-      dockerfile: api-server/Dockerfile
+      context: ../api-server
+      dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
       - IP=0.0.0.0
@@ -126,8 +126,8 @@ services:
   # Enable if your project needs file uploads.
   file-server:
     build:
-      context: ..
-      dockerfile: file-server/Dockerfile
+      context: ../file-server
+      dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
       - IP=0.0.0.0
@@ -144,8 +144,8 @@ services:
   # Enable if your project needs email/notifications.
   message-server:
     build:
-      context: ..
-      dockerfile: message-server/Dockerfile
+      context: ../message-server
+      dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
       - IP=0.0.0.0
@@ -162,8 +162,8 @@ services:
   # Enable if your project needs real-time chat.
   chat-server:
     build:
-      context: ..
-      dockerfile: chat-server/Dockerfile
+      context: ../chat-server
+      dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
       - IP=0.0.0.0
