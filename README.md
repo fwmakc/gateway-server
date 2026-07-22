@@ -33,7 +33,7 @@ NestJS + TypeScript microservices architecture with a **Core + Domain** separati
 
 | Repo | Role | Port | CI |
 |------|------|------|----|
-| [`gateway`](.) | nginx reverse proxy + docker-compose | 80 | — |
+| [`gateway-server`](.) | nginx reverse proxy + docker-compose | 80 | — |
 | [`auth-server`](https://github.com/fwmakc/auth-server) | OAuth2, JWT (RS256), JWKS, social SSO | 3001 | [![Tests](https://github.com/fwmakc/auth-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/auth-server/actions/workflows/test.yml) |
 | [`event-server`](https://github.com/fwmakc/event-server) | Webhook-based pub/sub event broker | 3005 | [![Tests](https://github.com/fwmakc/event-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/event-server/actions/workflows/test.yml) |
 | [`api-server-toolkit`](https://github.com/fwmakc/api-server-toolkit) | CRUD engine, guards, decorators | — | — |
@@ -48,7 +48,7 @@ NestJS + TypeScript microservices architecture with a **Core + Domain** separati
 - `auth-server` — OAuth2 provider, JWT signing (RS256 with auto-generated keys), social SSO (Google, Leader-ID, UNTI/2030)
 - `event-server` — central event broker. Services publish events via HTTP; subscribers register webhook URLs and receive deliveries with retry + exponential backoff
 - `api-server-toolkit` — npm package: auto-generating CRUD controllers, access control guards, column factories, Swagger docs
-- `gateway` — nginx routing, rate limiting, CORS, WebSocket support
+- `gateway-server` — nginx routing, rate limiting, CORS, WebSocket support
 
 **Domain** — clone per project:
 - `api-server` — defines project-specific entities. The reference implementation includes `persons`, `posts`, `categories`, `tags`. Replace these with your own
@@ -146,7 +146,7 @@ Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
 - All repos cloned as sibling directories:
   ```
   servers/
-    gateway/      ← you are here
+    gateway-server/  ← you are here
     auth-server/
     api-server/
     event-server/
