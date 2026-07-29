@@ -39,7 +39,7 @@ services:
       - DB_NAME=auth_server
       - DB_USER=root
       - DB_PASSWORD=1234
-      - DB_SYNCHRONIZE=true
+      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
@@ -96,7 +96,7 @@ services:
       - DB_NAME=event_server
       - DB_USER=root
       - DB_PASSWORD=1234
-      - DB_SYNCHRONIZE=true
+      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - WORKER_INTERVAL_MS=2000
       - CLEANUP_INTERVAL_MS=3600000
@@ -127,7 +127,7 @@ services:
       - DB_NAME=api_server
       - DB_USER=root
       - DB_PASSWORD=1234
-      - DB_SYNCHRONIZE=true
+      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005
@@ -178,7 +178,7 @@ services:
       - DB_NAME=message_server
       - DB_USER=root
       - DB_PASSWORD=1234
-      - DB_SYNCHRONIZE=true
+      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005
