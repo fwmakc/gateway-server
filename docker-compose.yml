@@ -30,6 +30,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
+      - SERVICE_NAME=auth-server
       - IP=0.0.0.0
       - PORT=3001
       - DB_TYPE=postgres
@@ -57,6 +58,22 @@ services:
       - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET:-dummy-client-secret}
       - OAUTH_CLIENT_REDIRECT=${OAUTH_CLIENT_REDIRECT:-http://localhost/auth/oauth/redirect}
       - OAUTH_SERVER=${OAUTH_SERVER:-http://auth-server:3001}
+      - FORM_CONFIRM=${FORM_CONFIRM:-http://localhost/confirm}
+      - FORM_CHANGE=${FORM_CHANGE:-http://localhost/change}
+      - FORM_REGISTER_COMPLETE=${FORM_REGISTER_COMPLETE:-http://localhost/register/complete}
+      - FORM_REGISTER=${FORM_REGISTER:-http://localhost/register}
+      - FORM_CONFIRM_COMPLETE=${FORM_CONFIRM_COMPLETE:-http://localhost/confirm/complete}
+      - FORM_RESET=${FORM_RESET:-http://localhost/reset}
+      - FORM_RESET_COMPLETE=${FORM_RESET_COMPLETE:-http://localhost/reset/complete}
+      - FORM_LOGIN=${FORM_LOGIN:-http://localhost/login}
+      # SMTP (MailHog for dev; auth-server still has MailModule)
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_USER=
+      - SMTP_PASSWORD=
+      - SMTP_SECURE=
+      - SMTP_SENDER_NAME=Test
+      - SMTP_SENDER_EMAIL=noreply@test.local
     depends_on:
       - postgres
     restart: unless-stopped
@@ -70,6 +87,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
+      - SERVICE_NAME=event-server
       - IP=0.0.0.0
       - PORT=3005
       - DB_TYPE=postgres
@@ -100,6 +118,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
+      - SERVICE_NAME=api-server
       - IP=0.0.0.0
       - PORT=5000
       - DB_TYPE=postgres
@@ -130,6 +149,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
+      - SERVICE_NAME=file-server
       - IP=0.0.0.0
       - PORT=3002
       - AUTH_SERVER_URL=http://auth-server:3001
@@ -144,16 +164,42 @@ services:
   # Enable if your project needs email/notifications.
   message-server:
     build:
-      context: ../message-server
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: message-server/Dockerfile
     environment:
       - NODE_ENV=production
+      - SERVICE_NAME=message-server
       - IP=0.0.0.0
       - PORT=3003
+      - ROOT_PATH=.
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=message_server
+      - DB_USER=root
+      - DB_PASSWORD=1234
+      - DB_SYNCHRONIZE=true
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005
+      - WEBHOOK_URL=http://message-server:3003/webhooks/events
+      # Queue worker
+      - WORKER_INTERVAL_MS=5000
+      - BATCH_SIZE=50
+      - MAIL_MAX_ATTEMPTS=5
+      - MAIL_RETRY_DELAY=5
+      - MAIL_CLEANUP_INTERVAL=3600000
+      - MAIL_CLEANUP_MAX_AGE_DAYS=30
+      # SMTP (MailHog for dev)
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_USER=mailhog
+      - SMTP_PASSWORD=mailhog
+      - SMTP_SECURE=
+      - SMTP_SENDER_NAME=Test
+      - SMTP_SENDER_EMAIL=noreply@test.local
     depends_on:
+      - postgres
       - event-server
     restart: unless-stopped
 
@@ -166,6 +212,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
+      - SERVICE_NAME=chat-server
       - IP=0.0.0.0
       - PORT=3004
       - AUTH_SERVER_URL=http://auth-server:3001
@@ -190,8 +237,6 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
-    ports:
-      - "5432:5432"
     restart: unless-stopped
 
   # --- Redis (Socket.IO adapter for multi-instance chat-server) ---
@@ -201,6 +246,14 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    restart: unless-stopped
+
+  # --- MailHog (dev SMTP server + web UI) ---
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
     restart: unless-stopped
 
 volumes:
