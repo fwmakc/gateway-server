@@ -26,8 +26,8 @@ services:
   # Required by all other services.
   auth-server:
     build:
-      context: ../auth-server
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: auth-server/Dockerfile
     environment:
       - NODE_ENV=production
       - SERVICE_NAME=auth-server
