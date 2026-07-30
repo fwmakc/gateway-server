@@ -100,6 +100,7 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_STRICT_MODE=${EVENT_STRICT_MODE:-false}
       - WORKER_INTERVAL_MS=2000
+      - WORKER_MAX_INTERVAL_MS=10000
       - CLEANUP_INTERVAL_MS=3600000
       - BATCH_SIZE=10
     depends_on:
@@ -186,6 +187,7 @@ services:
       - WEBHOOK_URL=http://message-server:3003/webhooks/events
       # Queue worker
       - WORKER_INTERVAL_MS=5000
+      - WORKER_MAX_INTERVAL_MS=25000
       - BATCH_SIZE=50
       - MAIL_MAX_ATTEMPTS=5
       - MAIL_RETRY_DELAY=5
@@ -237,7 +239,7 @@ services:
       POSTGRES_PASSWORD: 1234
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+      - ./init-databases.sh:/docker-entrypoint-initdb.sh/init-databases.sh:ro
     restart: unless-stopped
 
   # --- Redis (Socket.IO adapter for multi-instance chat-server) ---
