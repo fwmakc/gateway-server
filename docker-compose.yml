@@ -5,25 +5,29 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
+      - "${NGINX_PORT:-80}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./proxy.conf:/etc/nginx/conf.d/proxy.conf:ro
     depends_on:
-      - auth-server
-      - api-server
-      # - file-server
-      # - message-server
-      # - chat-server
+      auth-server:
+        condition: service_healthy
+      api-server:
+        condition: service_healthy
+    networks:
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
-  # CORE SERVICES (stable, shared across projects)
+  # CORE SERVICES
   # ═══════════════════════════════════════════════════════════════
 
-  # --- Auth Server (port 3001) ---
-  # OAuth2 authorization server, JWT/JWKS, social login.
-  # Required by all other services.
   auth-server:
     build:
       context: ..
@@ -37,10 +41,11 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=auth_server
-      - DB_USER=root
-      - DB_PASSWORD=1234
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret}
+      - AES_SECRET=${AES_SECRET:-change_me_to_32_characters__}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005
@@ -66,25 +71,26 @@ services:
       - FORM_RESET=${FORM_RESET:-http://localhost/reset}
       - FORM_RESET_COMPLETE=${FORM_RESET_COMPLETE:-http://localhost/reset/complete}
       - FORM_LOGIN=${FORM_LOGIN:-http://localhost/login}
-      # SMTP (MailHog for dev; auth-server still has MailModule)
-      - SMTP_HOST=mailhog
-      - SMTP_PORT=1025
-      - SMTP_USER=
-      - SMTP_PASSWORD=
-      - SMTP_SECURE=
-      - SMTP_SENDER_NAME=Test
-      - SMTP_SENDER_EMAIL=noreply@test.local
+      # SMTP (set in production; MailHog in dev via override)
+      - SMTP_HOST=${SMTP_HOST:-mailhog}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_SECURE=${SMTP_SECURE:-}
+      - SMTP_SENDER_NAME=${SMTP_SENDER_NAME:-Test}
+      - SMTP_SENDER_EMAIL=${SMTP_SENDER_EMAIL:-noreply@test.local}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
     restart: unless-stopped
 
-  # --- Event Server (port 3005) ---
-  # Central event broker. Webhook-based publish/subscribe.
-  # Replaces Redis Streams event bus. Internal only (not in nginx).
   event-server:
     build:
-      context: ../event-server
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: event-server/Dockerfile
     environment:
       - NODE_ENV=production
       - SERVICE_NAME=event-server
@@ -94,8 +100,8 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=event_server
-      - DB_USER=root
-      - DB_PASSWORD=1234
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_STRICT_MODE=${EVENT_STRICT_MODE:-false}
@@ -104,20 +110,21 @@ services:
       - CLEANUP_INTERVAL_MS=3600000
       - BATCH_SIZE=10
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
-  # DOMAIN SERVICE (project-specific — clone api-server per project)
+  # DOMAIN SERVICE
   # ═══════════════════════════════════════════════════════════════
 
-  # --- API Server (port 5000) ---
-  # CRUD engine for domain entities (persons, posts, settings, etc.).
-  # Clone this service for new projects and replace entities.
   api-server:
     build:
-      context: ../api-server
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: api-server/Dockerfile
     environment:
       - NODE_ENV=production
       - SERVICE_NAME=api-server
@@ -127,28 +134,30 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=api_server
-      - DB_USER=root
-      - DB_PASSWORD=1234
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005
     depends_on:
-      - postgres
-      - auth-server
+      postgres:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
-  # OPTIONAL SERVICES (enable as needed)
+  # OPTIONAL SERVICES
   # ═══════════════════════════════════════════════════════════════
 
-  # --- File Server (port 3002) ---
-  # File upload, image resize, static file serving.
-  # Enable if your project needs file uploads.
   file-server:
     build:
-      context: ../file-server
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: file-server/Dockerfile
     environment:
       - NODE_ENV=production
       - SERVICE_NAME=file-server
@@ -159,11 +168,13 @@ services:
       - UPLOADS_URL=/uploads
     volumes:
       - uploads_data:/app/public/uploads
+    depends_on:
+      auth-server:
+        condition: service_healthy
+    networks:
+      - frontend
     restart: unless-stopped
 
-  # --- Message Server (port 3003) ---
-  # Email sending, notifications. Subscribes to events from event-server.
-  # Enable if your project needs email/notifications.
   message-server:
     build:
       context: ..
@@ -178,8 +189,8 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=message_server
-      - DB_USER=root
-      - DB_PASSWORD=1234
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
@@ -193,73 +204,50 @@ services:
       - MAIL_RETRY_DELAY=5
       - MAIL_CLEANUP_INTERVAL=3600000
       - MAIL_CLEANUP_MAX_AGE_DAYS=30
-      # SMTP (MailHog for dev)
-      - SMTP_HOST=mailhog
-      - SMTP_PORT=1025
-      - SMTP_USER=mailhog
-      - SMTP_PASSWORD=mailhog
-      - SMTP_SECURE=
-      - SMTP_SENDER_NAME=Test
-      - SMTP_SENDER_EMAIL=noreply@test.local
+      # SMTP (set in production; MailHog in dev via override)
+      - SMTP_HOST=${SMTP_HOST:-mailhog}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_SECURE=${SMTP_SECURE:-}
+      - SMTP_SENDER_NAME=${SMTP_SENDER_NAME:-Test}
+      - SMTP_SENDER_EMAIL=${SMTP_SENDER_EMAIL:-noreply@test.local}
     depends_on:
-      - postgres
-      - event-server
-    restart: unless-stopped
-
-  # --- Chat Server (port 3004) ---
-  # WebSocket chat (Socket.IO).
-  # Enable if your project needs real-time chat.
-  chat-server:
-    build:
-      context: ../chat-server
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - SERVICE_NAME=chat-server
-      - IP=0.0.0.0
-      - PORT=3004
-      - AUTH_SERVER_URL=http://auth-server:3001
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
-      - EVENT_SERVER_URL=http://event-server:3005
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      event-server:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
   # INFRASTRUCTURE
   # ═══════════════════════════════════════════════════════════════
 
-  # --- PostgreSQL ---
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: 1234
+      POSTGRES_USER: ${DB_USER:-root}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-1234}
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./init-databases.sh:/docker-entrypoint-initdb.sh/init-databases.sh:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-root}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
-  # --- Redis (Socket.IO adapter for multi-instance chat-server) ---
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-
-  # --- MailHog (dev SMTP server + web UI) ---
-  mailhog:
-    image: mailhog/mailhog:latest
-    ports:
-      - "1025:1025"
-      - "8025:8025"
-    restart: unless-stopped
+networks:
+  frontend:
+  backend:
 
 volumes:
   pg_data:
   uploads_data:
-  redis_data:
