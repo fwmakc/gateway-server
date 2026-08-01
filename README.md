@@ -1,6 +1,42 @@
-# Microservices Stack
+# Gateway Server
 
-NestJS + TypeScript microservices architecture with a **Core + Domain** separation. Core services (auth, events, shared CRUD engine) are stable infrastructure reused across projects. Domain services (api-server) are cloned per project with custom entities.
+> Nginx reverse proxy + Docker Compose orchestration for the microservices stack.
+
+See the [root README](https://github.com/fwmakc/gateway-server#readme) for the full
+architecture overview, service map, and design decisions.
+
+## Docker Compose
+
+## Docker Compose
+
+### Structure
+
+- `docker-compose.yml` — production services (nginx, auth, event, api, file, message, postgres)
+- `docker-compose.override.yml` — dev additions (MailHog, Redis, chat-server, PostgreSQL port, DB_SYNCHRONIZE=true)
+
+Docker Compose auto-merges both files. For production:
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+### Networks
+
+| Network | Services |
+|---------|----------|
+| `frontend` | nginx ↔ app services |
+| `backend` | app services ↔ postgres |
+
+Nginx is on `frontend` only. PostgreSQL is on `backend` only. App services are on both.
+
+### Healthchecks
+
+All services have healthchecks (`/health` endpoint). `depends_on` uses
+`condition: service_healthy` to ensure correct startup order.
+
+### Build context
+
+All Dockerfiles use parent context (`context: ..`). The toolkit and event-server contracts
+are copied locally during build — no GitHub fetch needed.
 
 ## Architecture
 
@@ -151,31 +187,32 @@ Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
     api-server/
     event-server/
     api-server-toolkit/
-    file-server/  (optional)
-    message-server/ (optional)
-    chat-server/  (optional)
+    file-server/       (optional)
+    message-server/    (optional)
+    chat-server/       (optional, dev only)
   ```
 
-### Run
+### Run (development)
 
 ```bash
-# Copy env
 cp .env.example .env
 
-# Start everything
-docker compose up -d
+# Start everything (includes MailHog, Redis, chat-server via auto-merged override)
+docker compose up -d --build
 
-# Or start only core + domain (skip optional services)
+# Or start only core services
 docker compose up -d nginx auth-server event-server api-server postgres
-
-# Check status
-docker compose ps
-
-# View logs
-docker compose logs -f auth-server
 ```
 
-Services available at `http://localhost` (port 80).
+Services at `http://localhost` (port 80).
+MailHog web UI at `http://localhost:8025`.
+PostgreSQL at `localhost:5432`.
+
+### Run (production)
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
 
 ### Environment Variables
 
@@ -189,9 +226,9 @@ Services available at `http://localhost` (port 80).
 
 ## Infrastructure
 
-### PostgreSQL 16 (port 5432)
+### PostgreSQL 16
 
-User: `root` / Password: `1234`
+User: `root` / Password: `${DB_PASSWORD:-1234}` (override in `.env`)
 
 Databases (auto-created by `init-databases.sh`):
 
@@ -201,12 +238,25 @@ Databases (auto-created by `init-databases.sh`):
 | `api_server` | api-server |
 | `event_server` | event-server |
 | `message_server` | message-server |
-| `api_server_test` | api-server test suite |
-| `api_server_http_test` | api-server HTTP access control tests |
 
-### Redis 7 (port 6379)
+Port `5432` exposed in dev override only.
 
-Used only by chat-server (Socket.IO adapter for multi-instance). Not required if chat-server is disabled.
+### Redis 7
+
+Dev override only. Used by chat-server (Socket.IO adapter).
+
+### MailHog
+
+Dev override only. SMTP on `:1025`, web UI on `:8025`.
+
+## AI-friendly documentation
+
+Each service has auto-generated AI context files:
+- `ai-context.md` — structured reference (controllers, routes, services, entities, DTOs)
+- Swagger UI at `/swagger` — interactive API exploration
+- ReDoc at `/redoc` — readable API documentation
+
+Run `npm run ai-context` in any service to regenerate.
 
 ## Starting a New Project
 
