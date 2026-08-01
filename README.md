@@ -1,4 +1,4 @@
-# FWMAKC Microservices Stack
+# Microservices Stack
 
 NestJS + TypeScript microservices architecture with a **Core + Domain** separation. Core services (auth, events, shared CRUD engine) are stable infrastructure reused across projects. Domain services (api-server) are cloned per project with custom entities.
 
@@ -66,24 +66,24 @@ Event-server replaces the old Redis Streams event bus with a webhook-based appro
 auth-server                    event-server                   message-server
     │                               │                               │
     │  POST /events                 │                               │
-    │  { type: "account.registered",│                               │
-    │    data: {...} }              │                               │
+    │  { pattern: "user.registered",│                               │
+    │    payload: {...} }           │                               │
     │ ────────────────────────────► │                               │
     │                               │  stores Event +               │
     │                               │  creates Deliveries           │
     │                               │  for all Subscribers          │
     │                               │                               │
     │                               │  worker picks up Delivery     │
-    │                               │  POST /mail (webhook)         │
+    │                               │  POST /webhooks/events        │
     │                               │ ────────────────────────────► │
     │                               │                               │
     │                               │  ◄── 200 OK ───────────────── │
     │                               │  marks Delivery delivered     │
 ```
 
-- **Publish**: any service sends `POST /events` to event-server with `{ type, data }`
-- **Subscribe**: services register `POST /subscribers` with a webhook URL and event filter
-- **Delivery**: event-server's background worker delivers via HTTP with retry (configurable interval, batch size, exponential backoff)
+- **Publish**: any service sends `POST /events` to event-server with `{ pattern, payload, source }`
+- **Subscribe**: services register `POST /subscribe` with a webhook URL and event patterns
+- **Delivery**: event-server's background worker delivers via HTTP in parallel, with retry (exponential backoff) and circuit breaker (auto-deactivates subscribers after repeated permanent failures)
 
 ## Access Control Model
 
@@ -123,7 +123,7 @@ The shared npm package provides auto-generating CRUD controllers with per-operat
 
 Key exports: `EntityController`, `CommonService`, `CommonDto`, `Account()`, `Self()`, `FieldAccess`, column factories, `PermissionRegistry`.
 
-Installed as `github:fwmakc/api-server-toolkit#master` (auto-built via `prepare` script).
+Installed as `github:fwmakc/api-server-toolkit#master`. In the monorepo Docker setup, Dockerfiles override the npm-installed version with local source from `api-server-toolkit/dist/` + `/src/`.
 
 ## Nginx Routing
 
@@ -200,6 +200,7 @@ Databases (auto-created by `init-databases.sh`):
 | `auth_server` | auth-server |
 | `api_server` | api-server |
 | `event_server` | event-server |
+| `message_server` | message-server |
 | `api_server_test` | api-server test suite |
 | `api_server_http_test` | api-server HTTP access control tests |
 
