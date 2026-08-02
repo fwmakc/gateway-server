@@ -2,10 +2,15 @@
 
 > Nginx reverse proxy + Docker Compose orchestration for the microservices stack.
 
-See the [root README](https://github.com/fwmakc/gateway-server#readme) for the full
-architecture overview, service map, and design decisions.
+## What This Is
 
-## Docker Compose
+A **working scaffold** — not a demo, not a toy. Production-ready Docker Compose
+setup with Nginx gateway, rate limiting, CORS, health checks, and automatic
+database creation. Clone it, customize the domain entities in api-server,
+deploy to production.
+
+Part of a [microservices stack](https://github.com/fwmakc/gateway-server) —
+this repo orchestrates all services: auth, API, events, files, email, chat.
 
 ## Docker Compose
 
@@ -432,3 +437,56 @@ Each service has its own test suite run via GitHub Actions CI:
 | file-server | 52 | `npm test` (7 suites: handlers, service, orchestrator) |
 
 Tests use real PostgreSQL (not mocked) with `dropSchema: true` + `synchronize: true` for clean state.
+
+---
+
+## Versioning
+
+All services in the fwmakc stack share the same **major version**. Same major = guaranteed compatibility.
+
+| Level | Scope | Example |
+|-------|-------|---------|
+| **Major** | Shared across ALL services. A breaking change in any service bumps the major for everyone. | toolkit 2.x → 3.0.0 ⟹ all services tag v3.0.0 |
+| **Minor** | Independent per service. New features (additive). | auth-server 2.1.0 → 2.2.0 |
+| **Patch** | Independent per service. Bug fixes. | event-server 2.0.0 → 2.0.1 |
+
+### What triggers a major bump
+
+A breaking change at any intersection point:
+
+- **api-server-toolkit** — guards, columns, decorators, EntityController, bootstrap, services
+- **event-server contracts** — DTO field removed/renamed, required field added
+- **Inter-service API** — JWT claim format, `X-Internal-Api-Key` scheme, webhook contract
+- **Public API** — any endpoint that another service depends on
+
+### What does NOT trigger a major bump
+
+- Bug fixes, performance improvements
+- New features (additive — new optional fields, new endpoints)
+- Internal refactoring that doesn't change interfaces
+
+### Alignment process
+
+When a service makes a breaking change (e.g., toolkit 2.x → 3.0.0):
+
+1. The changing service bumps its major and tags the release
+2. **All other services** get a stack alignment commit:
+   - Bump `version` in `package.json`
+   - Add CHANGELOG entry: `chore: stack v3 alignment`
+   - Update dependency pins if needed
+   - Tag `v3.0.0`
+3. All services are now on stack v3
+
+### Current versions
+
+| Service | Version |
+|---------|---------|
+| [api-server-toolkit](https://github.com/fwmakc/api-server-toolkit) | v2.1.0 |
+| [event-server](https://github.com/fwmakc/event-server) | v2.0.0 |
+| [auth-server](https://github.com/fwmakc/auth-server) | v2.0.0 |
+| [message-server](https://github.com/fwmakc/message-server) | v2.0.0 |
+| [file-server](https://github.com/fwmakc/file-server) | v2.0.0 |
+| [chat-server](https://github.com/fwmakc/chat-server) | v2.0.0 |
+| [api-server](https://github.com/fwmakc/api-server) | v2.0.0 |
+| [gateway-server](https://github.com/fwmakc/gateway-server) | v2.0.0 |
+| [scaffold](https://github.com/fwmakc/scaffold) | v2.0.0 |
