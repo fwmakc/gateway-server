@@ -44,6 +44,7 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
+      - DB_MIGRATIONS_RUN=true
       - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret}
       - AES_SECRET=${AES_SECRET:-change_me_to_32_characters__}
       - AUTH_SERVER_URL=http://auth-server:3001
@@ -103,6 +104,7 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
+      - DB_MIGRATIONS_RUN=true
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_STRICT_MODE=${EVENT_STRICT_MODE:-false}
       - WORKER_INTERVAL_MS=2000
@@ -137,6 +139,7 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
+      - DB_MIGRATIONS_RUN=true
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005
@@ -192,6 +195,7 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
+      - DB_MIGRATIONS_RUN=true
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
       - EVENT_SERVER_URL=http://event-server:3005

@@ -72,7 +72,8 @@ are copied locally during build — no GitHub fetch needed.
 | [`gateway-server`](.) | nginx reverse proxy + docker-compose | 80 | — |
 | [`auth-server`](https://github.com/fwmakc/auth-server) | OAuth2, JWT (RS256), JWKS, social SSO | 3001 | [![Tests](https://github.com/fwmakc/auth-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/auth-server/actions/workflows/test.yml) |
 | [`event-server`](https://github.com/fwmakc/event-server) | Webhook-based pub/sub event broker | 3005 | [![Tests](https://github.com/fwmakc/event-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/event-server/actions/workflows/test.yml) |
-| [`api-server-toolkit`](https://github.com/fwmakc/api-server-toolkit) | CRUD engine, guards, decorators | — | — |
+| [`api-server-toolkit`](https://github.com/fwmakc/api-server-toolkit) | CRUD engine, guards, decorators, bootstrap(), HealthModule | — | — |
+| [`scaffold`](https://github.com/fwmakc/scaffold) | Minimal template for new services (9-line main.ts) | — | — |
 | [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
 | [`file-server`](https://github.com/fwmakc/file-server) | File upload, image resize | 3002 | — |
 | [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
@@ -159,7 +160,7 @@ The shared npm package provides auto-generating CRUD controllers with per-operat
 
 Key exports: `EntityController`, `CommonService`, `CommonDto`, `Account()`, `Self()`, `FieldAccess`, column factories, `PermissionRegistry`.
 
-Installed as `github:fwmakc/api-server-toolkit#master`. In the monorepo Docker setup, Dockerfiles override the npm-installed version with local source from `api-server-toolkit/dist/` + `/src/`.
+Installed as `github:fwmakc/api-server-toolkit#v2.1.0`. In the monorepo Docker setup, Dockerfiles override the npm-installed version with local source from `api-server-toolkit/dist/` + `/src/`.
 
 ## Nginx Routing
 
@@ -187,10 +188,12 @@ Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
     api-server/
     event-server/
     api-server-toolkit/
+    scaffold/          (template for new services)
     file-server/       (optional)
     message-server/    (optional)
     chat-server/       (optional, dev only)
   ```
+  See `clone-all.ps1` / `clone-all.sh` to clone everything in one command.
 
 ### Run (development)
 
@@ -260,31 +263,66 @@ Run `npm run ai-context` in any service to regenerate.
 
 ## Starting a New Project
 
+### Option A: Clone the scaffold (recommended for new microservices)
+
+1. **Clone scaffold:**
+   ```bash
+   git clone https://github.com/fwmakc/scaffold.git my-service
+   cd my-service
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Add your entities and modules** in `src/`:
+   ```
+   src/
+     main.ts           # 9 lines — uses bootstrap() from toolkit
+     app.module.ts     # HealthModule.forRoot("my-service") + your modules
+     products/
+       products.entity.ts
+       products.dto.ts
+       products.controller.ts
+   ```
+
+4. **Add to `docker-compose.yml`** in gateway-server, then:
+   ```bash
+   docker compose up -d --build my-service
+   ```
+
+### Option B: Clone api-server (for replacing the main CRUD API)
+
 1. **Clone api-server:**
    ```bash
    git clone https://github.com/fwmakc/api-server.git my-project-server
    ```
 
-2. **Add your entities** in `src/db/`:
-   ```
-   src/db/
-     products/
-       products.entity.ts    # TypeORM entity with @Column factories
-       products.dto.ts       # DTO extending CommonDto
-       products.service.ts   # extends CommonService<ProductDto, ProductEntity>
-       products.controller.ts # @EntityController({ ... })
-   ```
+2. **Replace domain entities** in `src/db/` with your own
 
-3. **Register module** in `src/app.imports.ts`
+3. **Register modules** in `src/app.imports.ts`
 
-4. **Update `docker-compose.yml`** in gateway:
-   - Rename `api-server` service to your project name
-   - Update build context and Dockerfile path
+4. **Update `docker-compose.yml`** in gateway
 
-5. **Start:**
-   ```bash
-   docker compose up -d
-   ```
+### What's in the scaffold
+
+The scaffold uses `bootstrap()` from `api-server-toolkit` — a shared startup function
+that handles Sentry, helmet, ValidationPipe, Swagger, graceful shutdown, and more.
+Each service's `main.ts` is ~10 lines instead of ~100+:
+
+```typescript
+import { bootstrap } from "api-server-toolkit/bootstrap";
+import { AppModule } from "@src/app.module";
+
+bootstrap({
+  module: AppModule,
+  serviceName: "my-service",
+  cors: true,
+});
+```
+
+`HealthModule` provides `GET /health` out of the box — no boilerplate needed.
 
 ## Testing
 
@@ -292,8 +330,11 @@ Each service has its own test suite run via GitHub Actions CI:
 
 | Service | Tests | Command |
 |---------|-------|---------|
+| api-server-toolkit | 111 | `npm test` (8 suites: guards, pipes, search, http, etc.) |
 | auth-server | 41 | `npm test` (cross-env TZ=UTC jest --runInBand) |
 | api-server | 368 | `npm test` (jest --runInBand) |
-| event-server | 33 | `npm test` (jest --runInBand) |
+| event-server | 33 | `npm test` (5 suites: events, subscribers, delivery, worker, auth) |
+| message-server | 33 | `npm test` (5 suites: webhooks, mail, queue, worker, subscriber) |
+| file-server | 52 | `npm test` (7 suites: handlers, service, orchestrator) |
 
 Tests use real PostgreSQL (not mocked) with `dropSchema: true` + `synchronize: true` for clean state.
