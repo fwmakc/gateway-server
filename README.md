@@ -403,6 +403,21 @@ When you're ready for authentication:
 
 No code changes required — just configuration.
 
+## Backend-Only — Bring Your Own Frontend
+
+This stack provides the **complete backend** — auth, CRUD, events, files, email.
+No frontend included, by design.
+
+All APIs are REST + JSON, fully documented via Swagger/ReDoc. Build your
+frontend in React, Vue, Next.js, Nuxt, React Native, Flutter — anything
+that speaks HTTP. The auth flow is standard OAuth2, so any OAuth2 client
+library works.
+
+You get a production-ready backend without the pain of wiring it up yourself:
+no weeks spent configuring auth, setting up CRUD patterns, building event
+delivery, or wiring Docker Compose. Clone, customize the domain entities,
+deploy.
+
 ## Testing
 
 Each service has its own test suite run via GitHub Actions CI:
