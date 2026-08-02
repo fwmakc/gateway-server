@@ -1,5 +1,8 @@
 # Gateway Server
 
+[![Version](https://img.shields.io/badge/version-v2.0.0-blue)](https://github.com/fwmakc/gateway-server/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/fwmakc/gateway-server/blob/master/LICENSE)
+
 > Nginx reverse proxy + Docker Compose orchestration for the microservices stack.
 
 ## What This Is
