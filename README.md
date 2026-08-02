@@ -324,6 +324,85 @@ bootstrap({
 
 `HealthModule` provides `GET /health` out of the box — no boilerplate needed.
 
+## Standalone Mode (Monolith)
+
+You can run **api-server alone** without auth-server, event-server, or any other service.
+This is useful for prototyping, testing, or when you simply need a CRUD API without authentication.
+
+### How it works
+
+The CRUD engine's access control has five levels. In standalone mode:
+
+| Access level | Works standalone? | Why |
+|---|---|---|
+| `public` | **Yes** | Token optional — `JwtPublicGuard` ignores missing/invalid tokens |
+| `account` | No (401) | Requires valid JWT signed by auth-server |
+| `owner` | No (401) | Same — needs JWT to identify the owner |
+| `admin` | No (401) | Same — needs JWT + `isSuperuser` |
+| `closed` | N/A | Route not generated |
+
+### Quick start (standalone)
+
+```bash
+git clone https://github.com/fwmakc/api-server.git
+cd api-server
+npm install
+
+# Minimal .env — only database needed
+cat > .env <<EOF
+NODE_ENV=development
+PORT=5000
+IP=localhost
+DB_TYPE=postgres
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=api_server
+DB_USER=root
+DB_PASSWORD=1234
+DB_SYNCHRONIZE=true
+SWAGGER_PREFIX=swagger
+EOF
+
+npm run dev
+```
+
+Swagger UI at `http://localhost:5000/swagger`.
+Health check at `http://localhost:5000/health`.
+
+### Define public entities
+
+```typescript
+@EntityController({
+  name: "products",
+  dto: ProductDto,
+  entity: ProductEntity,
+  operations: {
+    create: "public",   // No auth needed
+    read: "public",
+    update: "public",
+    delete: "public",
+  },
+})
+```
+
+### Add auth later
+
+When you're ready for authentication:
+
+1. Start auth-server:
+   ```bash
+   docker compose up -d auth-server
+   ```
+
+2. Add to api-server `.env`:
+   ```env
+   AUTH_SERVER_URL=http://auth-server:3001
+   ```
+
+3. Change access levels from `public` to `account`/`owner`/`admin` as needed.
+
+No code changes required — just configuration.
+
 ## Testing
 
 Each service has its own test suite run via GitHub Actions CI:
