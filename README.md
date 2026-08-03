@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-v0.3.0-blue)](https://github.com/fwmakc/gateway-server/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/fwmakc/gateway-server/blob/master/LICENSE)
 
-> Nginx reverse proxy + Docker Compose orchestration for the microservices stack.
+> Reference architecture: full-stack orchestration — Nginx gateway, Docker Compose, health checks, 7 services.
 
 ## What This Is
 
@@ -15,6 +15,100 @@ deploy to production.
 
 Part of a [microservices stack](https://github.com/fwmakc/gateway-server) —
 this repo orchestrates all services: auth, API, events, files, email, chat.
+
+## Reference Architecture
+
+Each service in the stack demonstrates a pattern. Together they form a
+reference implementation for building NestJS microservices on a shared toolkit.
+
+```
+                       ┌──────────┐
+                       │  nginx   │ :80
+                       │ gateway  │
+                       └────┬─────┘
+          ┌────────────────┼────────────────┐
+          │                │                │
+   ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+   │ auth-server │  │  api-server │  │ file-server │
+   │   :3001     │  │    :5000    │  │    :3002    │
+   │ auth pattern│  │ CRUD pattern│  │  stateless  │
+   └──────┬──────┘  └──────┬──────┘  └─────────────┘
+          │                │
+          │     ┌──────────┘
+          │     │
+   ┌──────▼─────▼─────┐     ┌──────────────┐
+   │  event-server    │────►│message-server│
+   │     :3005        │     │    :3003     │
+   │ event bus pat.   │     │ worker pat.  │
+   └──────────────────┘     └──────────────┘
+```
+
+| Service | Pattern | Port |
+|---------|---------|------|
+| [auth-server](https://github.com/fwmakc/auth-server) | Auth: JWT/JWKS, SSO, event-driven lifecycle | 3001 |
+| [api-server](https://github.com/fwmakc/api-server) | Domain CRUD: EntityController, access levels | 5000 |
+| [file-server](https://github.com/fwmakc/file-server) | Stateless: uploads, image processing, no DB | 3002 |
+| [event-server](https://github.com/fwmakc/event-server) | Event bus: pluggable transport, typed contracts | 3005 |
+| [message-server](https://github.com/fwmakc/message-server) | Background worker: queue, retry, templates | 3003 |
+| [chat-server](https://github.com/fwmakc/chat-server) | Realtime: WebSocket, Redis adapter (stub) | 3004 |
+| [scaffold](https://github.com/fwmakc/scaffold) | Template: 5-min bootstrap | — |
+
+## When to Use This Stack
+
+**Use it if:**
+
+- You need microservices from day one and want a working reference, not a blank NestJS project
+- You want to study a real NestJS microservices codebase with auth, event bus, and CRUD patterns
+- You need a prototype/MVP with registration, CRUD API, and event-driven email "right now"
+- You're building a product that will grow — start with the toolkit in a monolith, split when needed
+
+**Consider alternatives if:**
+
+- You need multi-tenancy (`tenant_id` scoping) — requires forking the toolkit
+- You need >1000 events/sec — switch the event bus to Kafka (the `IEventClient` interface supports this)
+- You want a community-supported framework with paid support — this is a fork-first codebase
+
+See [toolkit Limitations](https://github.com/fwmakc/api-server-toolkit#limitations) and
+[FAQ](https://github.com/fwmakc/api-server-toolkit#faq-addressing-common-concerns) for details.
+
+## FAQ: Addressing Common Concerns
+
+### "Single maintainer — what if you stop?"
+
+Fork-first codebase. You own the code from day one — no SaaS dependency, no API
+key to revoke. The toolkit ships with 111 tests and full type declarations.
+Forking is the enterprise pattern (internal Spring forks, Keycloak forks).
+
+### "Only `isSuperuser` for admin?"
+
+Set `SUPERUSER_FIELD=role` and `SUPERUSER_VALUE=admin` in your `.env`. Works with any
+JWT field and value(s). For full RBAC, add `@UseGuards(RbacGuard)` — the 5
+access levels are CRUD presets, not a security model. See
+[toolkit FAQ](https://github.com/fwmakc/api-server-toolkit#faq-addressing-common-concerns).
+
+### "Hardcoded to `account` table?"
+
+Set `OWNER_TABLE=user` in your `.env`. All ownership queries, bind scoping, and
+field security use your table name — no per-controller overrides needed.
+
+### "B2B SaaS with multi-tenancy?"
+
+Multi-tenancy requires a fork, but the fork touches 5-7 files. You inherit
+CRUD generation, Swagger, relations, and field security — you only build the
+tenant layer. See [toolkit Scenario 3](https://github.com/fwmakc/api-server-toolkit#scenario-3-completely-custom-identity-model-fork-required).
+
+### "Microservices overhead at the start?"
+
+`docker compose up -d` — one command. Or use just api-server + toolkit as a
+monolith. `EntityController` works identically in a single process. Split into
+microservices when you need to, not before.
+
+### "HTTP webhooks instead of Kafka?"
+
+`IEventClient` is transport-agnostic. `HttpEventClient` needs no broker — zero
+ops overhead. When you need Kafka throughput, implement `KafkaEventClient` —
+services don't change. The event-server is an abstraction layer, not a
+replacement for your message queue.
 
 ## Docker Compose
 
