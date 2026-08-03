@@ -1,7 +1,7 @@
 # Gateway Server
 
 [![CI](https://github.com/fwmakc/gateway-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/gateway-server/actions/workflows/test.yml)
-[![Version](https://img.shields.io/badge/version-v2.0.1-blue)](https://github.com/fwmakc/gateway-server/releases)
+[![Version](https://img.shields.io/badge/version-v0.3.0-blue)](https://github.com/fwmakc/gateway-server/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/fwmakc/gateway-server/blob/master/LICENSE)
 
 > Nginx reverse proxy + Docker Compose orchestration for the microservices stack.
@@ -485,12 +485,12 @@ When a service makes a breaking change (e.g., toolkit 2.x → 3.0.0):
 
 | Service | Version |
 |---------|---------|
-| [api-server-toolkit](https://github.com/fwmakc/api-server-toolkit) | v2.2.0 |
-| [event-server](https://github.com/fwmakc/event-server) | v2.0.0 |
-| [auth-server](https://github.com/fwmakc/auth-server) | v2.0.0 |
-| [message-server](https://github.com/fwmakc/message-server) | v2.0.0 |
-| [file-server](https://github.com/fwmakc/file-server) | v2.0.0 |
-| [chat-server](https://github.com/fwmakc/chat-server) | v2.0.0 |
-| [api-server](https://github.com/fwmakc/api-server) | v2.0.1 |
-| [gateway-server](https://github.com/fwmakc/gateway-server) | v2.0.1 |
-| [scaffold](https://github.com/fwmakc/scaffold) | v2.0.0 |
+| [api-server-toolkit](https://github.com/fwmakc/api-server-toolkit) | v0.9.0 |
+| [event-server](https://github.com/fwmakc/event-server) | v0.5.0 |
+| [auth-server](https://github.com/fwmakc/auth-server) | v0.5.0 |
+| [message-server](https://github.com/fwmakc/message-server) | v0.4.0 |
+| [file-server](https://github.com/fwmakc/file-server) | v0.4.0 |
+| [chat-server](https://github.com/fwmakc/chat-server) | v0.1.0 |
+| [api-server](https://github.com/fwmakc/api-server) | v0.5.0 |
+| [gateway-server](https://github.com/fwmakc/gateway-server) | v0.3.0 |
+| [scaffold](https://github.com/fwmakc/scaffold) | v0.1.0 |
