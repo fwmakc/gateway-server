@@ -169,7 +169,7 @@ The shared npm package provides auto-generating CRUD controllers with per-operat
 
 Key exports: `EntityController`, `CommonService`, `CommonDto`, `Account()`, `Self()`, `FieldAccess`, column factories, `PermissionRegistry`.
 
-Installed as `github:fwmakc/api-server-toolkit#v2.1.0`. In the monorepo Docker setup, Dockerfiles override the npm-installed version with local source from `api-server-toolkit/dist/` + `/src/`.
+Installed as `github:fwmakc/api-server-toolkit#v0.9.0`. In the monorepo Docker setup, Dockerfiles override the npm-installed version with local source from `api-server-toolkit/dist/` + `/src/`.
 
 ## Nginx Routing
 
