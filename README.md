@@ -250,7 +250,7 @@ Quick example:
     create: "account",
     read: "public",
     update: "owner",
-    delete: "admin",
+    delete: "superuser",
   },
 })
 ```
