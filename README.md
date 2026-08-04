@@ -335,9 +335,64 @@ Total: 350 connections → PostgreSQL default max_connections = 100
 
 **Solutions:**
 
-1. **Lower `DB_POOL_MAX`** (quick fix): 10-20 per instance for small deployments
-2. **Add PgBouncer** (recommended): connection pooler, PostgreSQL sees only ~25 real connections
+1. **PgBouncer** (included): connection pooler between services and PostgreSQL. Transaction-mode pooling — PostgreSQL sees only ~25 real connections regardless of replica count
+2. **Lower `DB_POOL_MAX`** (quick fix): 10-20 per instance for small deployments
 3. **Increase PostgreSQL `max_connections`** (brute force): `ALTER SYSTEM SET max_connections = 500`
+
+### PgBouncer
+
+PgBouncer sits between services and PostgreSQL:
+
+```
+services (DB_POOL_MAX=50 each) → pgbouncer:5432 → postgres:5432
+                                  pool: 25 conn    real PostgreSQL
+```
+
+- **Pool mode**: `transaction` — connections returned to pool after each transaction
+- **Max client connections**: 1000 (services can open many, PgBouncer multiplexes)
+- **Pool size**: 25 per database (PostgreSQL sees only 25 real connections)
+- **Auto-configured**: all databases routed via wildcard `*`
+
+Services connect to `pgbouncer:5432` instead of `postgres:5432`. No code changes needed — PgBouncer is transparent.
+
+### TLS termination
+
+For production, switch from HTTP to HTTPS:
+
+1. **Generate certificates** (choose one):
+   ```bash
+   # Self-signed for dev:
+   ./generate-self-signed-cert.sh
+
+   # Let's Encrypt for production:
+   certbot certonly --standalone -d api.example.com
+   cp /etc/letsencrypt/live/api.example.com/fullchain.pem ssl/cert.pem
+   cp /etc/letsencrypt/live/api.example.com/privkey.pem ssl/key.pem
+   ```
+
+2. **Mount the SSL config** in `docker-compose.yml`:
+   ```yaml
+   nginx:
+     volumes:
+       # - ./nginx.conf:/etc/nginx/nginx.conf:ro        # HTTP (default)
+       - ./nginx-ssl.conf:/etc/nginx/nginx.conf:ro        # HTTPS (uncomment)
+       - ./proxy.conf:/etc/nginx/conf.d/proxy.conf:ro
+       - ./ssl:/etc/nginx/ssl:ro
+   ```
+
+3. **Add your domain to CORS allowlist** in `nginx.conf` or `nginx-ssl.conf`:
+   ```nginx
+   map $http_origin $cors_valid_origin {
+       default "";
+       "~^https://(.+\.)?example\.com$" "$http_origin";   # your domain
+   }
+   ```
+
+Features included in `nginx-ssl.conf`:
+- HTTP → HTTPS 301 redirect
+- HSTS header (`Strict-Transport-Security`)
+- TLS 1.2 + 1.3 only
+- Session caching (10m shared)
 
 ### Scaling checklist
 
