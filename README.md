@@ -278,6 +278,77 @@ Installed as `github:fwmakc/api-server-toolkit#v0.11.0`. In the monorepo Docker 
 
 Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
 
+## Horizontal Scaling
+
+### Nginx upstream configuration
+
+Nginx uses `upstream{}` blocks with the `resolve` parameter (nginx 1.27.3+).
+This enables **auto-discovery** of scaled replicas and **failover** when instances die:
+
+```nginx
+upstream api_backend {
+    zone api_backend 64k;                              # shared memory for runtime DNS
+    least_conn;                                        # send to least-busy instance
+    server api-server:5000 resolve max_fails=3 fail_timeout=30s;
+}
+```
+
+- `resolve` — re-resolves Docker DNS every 10s, picks up new `--scale` replicas
+- `least_conn` — balances by active connections, not round-robin
+- `max_fails=3 fail_timeout=30s` — removes dead instances from rotation for 30s after 3 failures
+- `ip_hash` (chat-server only) — sticky sessions for WebSocket, clients stay on the same instance
+
+### Scaling services
+
+```bash
+# Scale api-server to 3 instances
+docker compose up -d --scale api-server=3
+
+# Scale multiple services
+docker compose up -d \
+  --scale api-server=3 \
+  --scale event-server=2 \
+  --scale message-server=2
+```
+
+### Service scaling matrix
+
+| Service | Scale now? | Bottleneck | Fix |
+|---------|-----------|------------|-----|
+| **api-server** | Yes | PostgreSQL connections | Add PgBouncer at high replica count |
+| **event-server** | Yes | `FOR UPDATE SKIP LOCKED` — no duplicate processing | Already safe |
+| **message-server** | Yes | `QueueWorker` with `SKIP LOCKED` — no duplicate processing | Already safe |
+| **auth-server** | Yes | Stateless JWT — no shared store needed | Already fixed |
+| **file-server** | No | Local disk (`uploads_data` volume per container) | Move to S3/MinIO |
+| **chat-server** | Limited | In-memory WS adapter; `ip_hash` keeps clients sticky | Add WS adapter for cross-instance broadcast |
+
+### PostgreSQL connection sizing
+
+Each service instance opens up to `DB_POOL_MAX` connections (default: 50). With N replicas:
+
+```
+api-server × 3  = 150 connections
+auth-server × 2 = 100 connections
+event-server × 2 = 100 connections
+Total: 350 connections → PostgreSQL default max_connections = 100
+```
+
+**Solutions:**
+
+1. **Lower `DB_POOL_MAX`** (quick fix): 10-20 per instance for small deployments
+2. **Add PgBouncer** (recommended): connection pooler, PostgreSQL sees only ~25 real connections
+3. **Increase PostgreSQL `max_connections`** (brute force): `ALTER SYSTEM SET max_connections = 500`
+
+### Scaling checklist
+
+Before adding replicas:
+
+- [ ] Nginx upstream `resolve` active (verify: `nginx -t` passes, `nginx -V` shows version ≥ 1.27.3)
+- [ ] Service is stateless (check the matrix above)
+- [ ] `DB_POOL_MAX × replicas ≤ PostgreSQL max_connections` (or add PgBouncer)
+- [ ] `SKIP LOCKED` worker pattern (event-server, message-server — already in place)
+- [ ] Health check endpoint (`/health`) responds 200 — nginx uses it for `depends_on: service_healthy`
+
 ## Quick Start
 
 ### Prerequisites

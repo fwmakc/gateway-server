@@ -45,7 +45,6 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-1234}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - DB_MIGRATIONS_RUN=true
-      - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret}
       - AES_SECRET=${AES_SECRET:-change_me_to_32_characters__}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
