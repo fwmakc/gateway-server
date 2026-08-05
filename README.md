@@ -1,7 +1,7 @@
 # Gateway Server
 
 [![CI](https://github.com/fwmakc/gateway-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/gateway-server/actions/workflows/test.yml)
-[![Version](https://img.shields.io/badge/version-v0.3.0-blue)](https://github.com/fwmakc/gateway-server/releases)
+[![Version](https://img.shields.io/badge/version-v0.4.0-blue)](https://github.com/fwmakc/gateway-server/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/fwmakc/gateway-server/blob/master/LICENSE)
 
 > Reference architecture: full-stack orchestration — Nginx gateway, Docker Compose, health checks, 7 services.
@@ -732,5 +732,5 @@ When a service makes a breaking change (e.g., toolkit 2.x → 3.0.0):
 | [file-server](https://github.com/fwmakc/file-server) | v0.4.0 |
 | [chat-server](https://github.com/fwmakc/chat-server) | v0.1.0 |
 | [api-server](https://github.com/fwmakc/api-server) | v0.5.0 |
-| [gateway-server](https://github.com/fwmakc/gateway-server) | v0.3.0 |
+| [gateway-server](https://github.com/fwmakc/gateway-server) | v0.4.0 |
 | [scaffold](https://github.com/fwmakc/scaffold) | v0.1.0 |
