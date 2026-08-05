@@ -351,9 +351,29 @@ services (DB_POOL_MAX=50 each) → pgbouncer:5432 → postgres:5432
 - **Pool mode**: `transaction` — connections returned to pool after each transaction
 - **Max client connections**: 1000 (services can open many, PgBouncer multiplexes)
 - **Pool size**: 25 per database (PostgreSQL sees only 25 real connections)
+- **Query timeout**: 10s — kills slow/stuck queries, prevents connection exhaustion
 - **Auto-configured**: all databases routed via wildcard `*`
 
 Services connect to `pgbouncer:5432` instead of `postgres:5432`. No code changes needed — PgBouncer is transparent.
+
+### DDoS protection
+
+Multiple layers prevent connection exhaustion and resource flooding:
+
+| Layer | Protection | Config |
+|-------|-----------|--------|
+| **nginx `limit_conn`** | Max 10 simultaneous connections per IP on auth endpoints | `limit_conn conn_limit 10` |
+| **nginx `limit_req`** | 5 r/s on auth, 10 r/s on API (per IP) | `limit_req zone=auth_limit burst=10` |
+| **nginx `proxy_read_timeout`** | Auth endpoints: 10s (was 300s) | Prevents slow-request holding |
+| **PgBouncer `QUERY_TIMEOUT`** | 10s — kills stuck queries | `QUERY_TIMEOUT=10` |
+| **Throttler (auth-server)** | 10/min on `/token`, 5/min on `/login` | `@nestjs/throttler` |
+| **Token rotation** | Old refresh token revoked on every refresh | Prevents replay flooding |
+
+Attack scenario mitigation:
+- Single IP flood: `limit_conn` blocks at 10 concurrent connections
+- Distributed flood: `proxy_read_timeout 10s` releases connections fast
+- DB flooding: PgBouncer queue + `QUERY_TIMEOUT` prevents stuck queries
+- Token flooding: rotation + cleanup prevents table bloat
 
 ### TLS termination
 

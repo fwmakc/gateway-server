@@ -247,6 +247,7 @@ services:
       - MIN_POOL_SIZE=5
       - RESERVE_POOL_SIZE=5
       - RESERVE_POOL_TIMEOUT=3
+      - QUERY_TIMEOUT=10
       - SERVER_RESET_QUERY=DISCARD ALL
     depends_on:
       postgres:
