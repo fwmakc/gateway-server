@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-28
+
+### Fixed
+- `init-databases.sh` mount pointed to `/docker-entrypoint-initdb.sh/` — the script never ran, so a fresh `pg_data` volume started with zero stack databases. Now mounted at `/docker-entrypoint-initdb.d/`.
+
+### Changed
+- `DB_PASSWORD`, `INTERNAL_API_KEY`, `AES_SECRET` are required — compose interpolates them with `:?` and refuses to start on missing values (insecure defaults `1234`/`changeme` removed).
+- chat-server and redis removed from the dev override (chat is frozen: no JWT on WebSocket, no Redis adapter, no storage). Nginx chat upstream/location commented out with restore notes.
+- Security headers on all responses: `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` (HSTS stays in `nginx-ssl.conf`). `X-Internal-Api-Key` removed from browser-facing CORS headers.
+- Resource limits (`mem_limit`/`cpus`) for all services.
+
+### Added
+- `backup.sh` — gzip'ed pg_dump of all production databases (test DBs excluded) + restore instructions in README.
+- `.env.example` rewritten around the required secrets with generation commands.
+
 ## [0.3.0] - 2026-08-03
 
 Version reset to pre-release. The gateway server provides Docker Compose orchestration, nginx config, and k6 load tests, but the overall stack is not yet production-hardened.

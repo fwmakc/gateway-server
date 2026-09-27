@@ -24,6 +24,8 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+    mem_limit: 128m
+    cpus: 0.5
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -44,12 +46,12 @@ services:
       - DB_PORT=5432
       - DB_NAME=auth_server
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-1234}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - DB_MIGRATIONS_RUN=true
-      - AES_SECRET=${AES_SECRET:-change_me_to_32_characters__}
+      - AES_SECRET=${AES_SECRET:?set AES_SECRET (32+ chars) in .env}
       - AUTH_SERVER_URL=http://auth-server:3001
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
       # Social SSO (set real values in production)
       - LEADER_CLIENT_ID=${LEADER_CLIENT_ID:-dummy-client-id}
@@ -87,6 +89,8 @@ services:
     networks:
       - frontend
       - backend
+    mem_limit: 512m
+    cpus: 1.0
     restart: unless-stopped
 
   event-server:
@@ -103,10 +107,10 @@ services:
       - DB_PORT=5432
       - DB_NAME=event_server
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-1234}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - DB_MIGRATIONS_RUN=true
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_STRICT_MODE=${EVENT_STRICT_MODE:-false}
       - WORKER_INTERVAL_MS=500
       - WORKER_MAX_INTERVAL_MS=2000
@@ -120,6 +124,8 @@ services:
     networks:
       - frontend
       - backend
+    mem_limit: 512m
+    cpus: 1.0
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -140,11 +146,11 @@ services:
       - DB_PORT=5432
       - DB_NAME=api_server
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-1234}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - DB_MIGRATIONS_RUN=true
       - AUTH_SERVER_URL=http://auth-server:3001
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
     depends_on:
       pgbouncer:
@@ -154,6 +160,8 @@ services:
     networks:
       - frontend
       - backend
+    mem_limit: 512m
+    cpus: 1.0
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -179,6 +187,8 @@ services:
         condition: service_healthy
     networks:
       - frontend
+    mem_limit: 1g
+    cpus: 1.5
     restart: unless-stopped
 
   message-server:
@@ -196,11 +206,11 @@ services:
       - DB_PORT=5432
       - DB_NAME=message_server
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-1234}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
       - DB_MIGRATIONS_RUN=true
       - AUTH_SERVER_URL=http://auth-server:3001
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
       - WEBHOOK_URL=http://message-server:3003/webhooks/events
       # Queue worker
@@ -227,6 +237,8 @@ services:
     networks:
       - frontend
       - backend
+    mem_limit: 512m
+    cpus: 1.0
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -237,7 +249,7 @@ services:
     image: edoburu/pgbouncer:latest
     environment:
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-1234}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - DB_HOST=postgres
       - DB_PORT=5432
       - AUTH_TYPE=plain
@@ -260,16 +272,18 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+    mem_limit: 256m
+    cpus: 0.5
     restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${DB_USER:-root}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-1234}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./init-databases.sh:/docker-entrypoint-initdb.sh/init-databases.sh:ro
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     networks:
       - backend
     healthcheck:
@@ -278,6 +292,8 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    mem_limit: 1g
+    cpus: 1.5
     restart: unless-stopped
 
 networks:

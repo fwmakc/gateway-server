@@ -440,7 +440,7 @@ Before adding replicas:
     api-server-scaffold/ (template for new services)
     file-server/       (optional)
     message-server/    (optional)
-    chat-server/       (optional, dev only)
+    chat-server/       (frozen — skeleton, not part of the compose stack)
   ```
   See `clone-all.ps1` / `clone-all.sh` to clone everything in one command.
 
@@ -449,7 +449,7 @@ Before adding replicas:
 ```bash
 cp .env.example .env
 
-# Start everything (includes MailHog, Redis, chat-server via auto-merged override)
+# Start everything (includes MailHog via auto-merged override)
 docker compose up -d --build
 
 # Or start only core services
@@ -468,13 +468,15 @@ docker compose -f docker-compose.yml up -d --build
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `INTERNAL_API_KEY` | `changeme` | Shared key for service-to-service auth |
-| `SESSION_SECRET` | `dev-session-secret` | Session encryption key |
-| `LEADER_CLIENT_ID` | `dummy-client-id` | Leader-ID OAuth |
-| `UNTI_CLIENT_ID` | `dummy-client-id` | UNTI/2035 OAuth |
-| `GOOGLE_CLIENT_ID` | `dummy-client-id` | Google OAuth |
+**Required** — `docker compose` refuses to start without them (no insecure defaults):
+
+| Variable | How to generate | Description |
+|----------|-----------------|-------------|
+| `DB_PASSWORD` | `openssl rand -hex 16` | Postgres password |
+| `INTERNAL_API_KEY` | `openssl rand -hex 32` | Shared key for service-to-service auth |
+| `AES_SECRET` | `openssl rand -hex 32` | auth-server AES key for OAuth tokens (32+ chars) |
+
+**Optional** (see `.env.example`): `DB_USER`, `NGINX_PORT`/`NGINX_SSL_PORT`, SSO client ids/secrets, SMTP credentials.
 
 ## Infrastructure
 
@@ -495,11 +497,31 @@ Port `5432` exposed in dev override only.
 
 ### Redis 7
 
-Dev override only. Used by chat-server (Socket.IO adapter).
+Frozen together with chat-server (was used for its Socket.IO adapter). Returns when chat MVP is built.
 
 ### MailHog
 
 Dev override only. SMTP on `:1025`, web UI on `:8025`.
+
+### Backups
+
+`backup.sh` dumps every production database (test DBs excluded) into gzip'ed SQL:
+
+```bash
+./backup.sh                  # -> ./backups/<db>_<timestamp>.sql.gz
+./backup.sh /mnt/backups     # custom output dir
+```
+
+**Restore a database:**
+
+```bash
+gunzip < backups/api_server_20260928_030000.sql.gz \
+  | docker compose exec -T postgres psql -U root -d api_server
+```
+
+Schedule it with cron/systemd timers on the host — the stack intentionally ships
+without a backup daemon; point the script at durable storage (NAS, S3, another disk).
+Verify restores regularly: an untested backup is not a backup.
 
 ## AI-friendly documentation
 

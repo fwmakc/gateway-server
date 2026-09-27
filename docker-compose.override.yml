@@ -24,44 +24,9 @@ services:
     environment:
       - DB_SYNCHRONIZE=true
 
-  # Chat server — incomplete (no JWT on WS, no Redis adapter)
-  # Remove or complete before production use
-  chat-server:
-    build:
-      context: ..
-      dockerfile: chat-server/Dockerfile
-    environment:
-      - NODE_ENV=production
-      - SERVICE_NAME=chat-server
-      - IP=0.0.0.0
-      - PORT=3004
-      - AUTH_SERVER_URL=http://auth-server:3001
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-changeme}
-      - EVENT_SERVER_URL=http://event-server:3005
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - frontend
-      - backend
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
+  # chat-server заморожен (v0.1.0: нет JWT на WebSocket, Redis-адаптера и
+  # хранения; см. дорожную карту, волна 3). Вместе с ним заморожен redis —
+  # он был нужен только chat'у. Вернуть оба при реализации MVP.
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -71,6 +36,3 @@ services:
     networks:
       - backend
     restart: unless-stopped
-
-volumes:
-  redis_data:
