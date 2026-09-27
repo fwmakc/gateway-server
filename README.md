@@ -51,7 +51,7 @@ reference implementation for building NestJS microservices on a shared toolkit.
 | [event-server](https://github.com/fwmakc/event-server) | Event bus: pluggable transport, typed contracts | 3005 |
 | [message-server](https://github.com/fwmakc/message-server) | Background worker: queue, retry, templates | 3003 |
 | [chat-server](https://github.com/fwmakc/chat-server) | Realtime: WebSocket, Redis adapter (stub) | 3004 |
-| [scaffold](https://github.com/fwmakc/scaffold) | Template: 5-min bootstrap | — |
+| [api-server-scaffold](https://github.com/fwmakc/api-server-scaffold) | Template: 5-min bootstrap | — |
 
 ## When to Use This Stack
 
@@ -176,7 +176,7 @@ are copied locally during build — no GitHub fetch needed.
 | [`auth-server`](https://github.com/fwmakc/auth-server) | OAuth2, JWT (RS256), JWKS, social SSO | 3001 | [![Tests](https://github.com/fwmakc/auth-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/auth-server/actions/workflows/test.yml) |
 | [`event-server`](https://github.com/fwmakc/event-server) | Webhook-based pub/sub event broker | 3005 | [![Tests](https://github.com/fwmakc/event-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/event-server/actions/workflows/test.yml) |
 | [`api-server-toolkit`](https://github.com/fwmakc/api-server-toolkit) | CRUD engine, guards, decorators, bootstrap(), HealthModule | — | — |
-| [`scaffold`](https://github.com/fwmakc/scaffold) | Minimal template for new services (9-line main.ts) | — | — |
+| [`api-server-scaffold`](https://github.com/fwmakc/api-server-scaffold) | Minimal template for new services (explicit main.ts) | — | — |
 | [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
 | [`file-server`](https://github.com/fwmakc/file-server) | File upload, image resize | 3002 | — |
 | [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
@@ -437,7 +437,7 @@ Before adding replicas:
     api-server/
     event-server/
     api-server-toolkit/
-    scaffold/          (template for new services)
+    api-server-scaffold/ (template for new services)
     file-server/       (optional)
     message-server/    (optional)
     chat-server/       (optional, dev only)
@@ -514,9 +514,9 @@ Run `npm run ai-context` in any service to regenerate.
 
 ### Option A: Clone the scaffold (recommended for new microservices)
 
-1. **Clone scaffold:**
+1. **Clone api-server-scaffold:**
    ```bash
-   git clone https://github.com/fwmakc/scaffold.git my-service
+   git clone https://github.com/fwmakc/api-server-scaffold.git my-service
    cd my-service
    ```
 
@@ -733,4 +733,4 @@ When a service makes a breaking change (e.g., toolkit 2.x → 3.0.0):
 | [chat-server](https://github.com/fwmakc/chat-server) | v0.1.0 |
 | [api-server](https://github.com/fwmakc/api-server) | v0.5.0 |
 | [gateway-server](https://github.com/fwmakc/gateway-server) | v0.4.0 |
-| [scaffold](https://github.com/fwmakc/scaffold) | v0.1.0 |
+| [api-server-scaffold](https://github.com/fwmakc/api-server-scaffold) | v0.1.0 |
