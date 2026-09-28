@@ -480,6 +480,21 @@ docker compose -f docker-compose.yml up -d --build
 
 ## Infrastructure
 
+### E2E Smoke Check
+
+`smoke.sh` verifies the full auth → api → event chain against a running stack
+(register → confirm → login → JWT → api → event recording):
+
+```bash
+./smoke.sh                          # through nginx (BASE=http://localhost)
+BASE=https://example.com ./smoke.sh # remote stack
+```
+
+The script reads confirm codes and recorded events from Postgres, so it needs
+Docker access to the compose postgres (or an override, see the header comment).
+Exits non-zero with per-check FAIL lines when anything breaks — wire it into
+deploy pipelines as a post-deploy gate.
+
 ### PostgreSQL 16
 
 User: `root` / Password: `${DB_PASSWORD}` (required, set in `.env`)
