@@ -38,6 +38,7 @@ services:
       dockerfile: auth-server/Dockerfile
     environment:
       - NODE_ENV=production
+      - LOG_FORMAT=json
       - SERVICE_NAME=auth-server
       - IP=0.0.0.0
       - PORT=3001
@@ -99,6 +100,7 @@ services:
       dockerfile: event-server/Dockerfile
     environment:
       - NODE_ENV=production
+      - LOG_FORMAT=json
       - SERVICE_NAME=event-server
       - IP=0.0.0.0
       - PORT=3005
@@ -138,6 +140,7 @@ services:
       dockerfile: api-server/Dockerfile
     environment:
       - NODE_ENV=production
+      - LOG_FORMAT=json
       - SERVICE_NAME=api-server
       - IP=0.0.0.0
       - PORT=5000
@@ -174,6 +177,7 @@ services:
       dockerfile: file-server/Dockerfile
     environment:
       - NODE_ENV=production
+      - LOG_FORMAT=json
       - SERVICE_NAME=file-server
       - IP=0.0.0.0
       - PORT=3002
@@ -197,6 +201,7 @@ services:
       dockerfile: message-server/Dockerfile
     environment:
       - NODE_ENV=production
+      - LOG_FORMAT=json
       - SERVICE_NAME=message-server
       - IP=0.0.0.0
       - PORT=3003
