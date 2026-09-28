@@ -13,4 +13,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate docker-compose.yml
-        run: docker compose config --quiet
+        run: |
+          DB_PASSWORD=ci INTERNAL_API_KEY=ci AES_SECRET=ci docker compose -f docker-compose.yml config --quiet
+          DB_PASSWORD=ci INTERNAL_API_KEY=ci AES_SECRET=ci docker compose -f docker-compose.yml -f docker-compose.override.yml config --quiet
