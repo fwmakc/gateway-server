@@ -296,6 +296,50 @@ services:
     cpus: 1.5
     restart: unless-stopped
 
+  # ═══════════════════════════════════════════════════════════════
+  # MONITORING (opt-in: COMPOSE_PROFILES=monitoring in .env or
+  # docker compose --profile monitoring up -d)
+  # ═══════════════════════════════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    profiles:
+      - monitoring
+    networks:
+      - frontend
+      - backend
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+    networks:
+      - frontend
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
 networks:
   frontend:
   backend:
@@ -303,3 +347,5 @@ networks:
 volumes:
   pg_data:
   uploads_data:
+  prometheus_data:
+  grafana_data:

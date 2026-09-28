@@ -482,7 +482,7 @@ docker compose -f docker-compose.yml up -d --build
 
 ### PostgreSQL 16
 
-User: `root` / Password: `${DB_PASSWORD:-1234}` (override in `.env`)
+User: `root` / Password: `${DB_PASSWORD}` (required, set in `.env`)
 
 Databases (auto-created by `init-databases.sh`):
 
@@ -522,6 +522,27 @@ gunzip < backups/api_server_20260928_030000.sql.gz \
 Schedule it with cron/systemd timers on the host — the stack intentionally ships
 without a backup daemon; point the script at durable storage (NAS, S3, another disk).
 Verify restores regularly: an untested backup is not a backup.
+
+### Monitoring (Prometheus + Grafana)
+
+Opt-in profile — the core stack runs without it:
+
+```bash
+COMPOSE_PROFILES=monitoring docker compose up -d   # or --profile monitoring
+```
+
+- **Prometheus** scrapes `/metrics` of auth, api, event, message and file
+  servers every 15s (config: `monitoring/prometheus.yml`, retention 15d).
+- **Grafana** UI on `:3000` (`GRAFANA_PORT`), Prometheus datasource
+  auto-provisioned from `monitoring/grafana/provisioning/`. Change the default
+  admin password on first login (`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`).
+
+Every service exposes Prometheus metrics via the toolkit's `MetricsModule`:
+`http_requests_total` and `http_request_duration_seconds` (labels
+`method`/`route`/`status`, route patterns — not raw URLs) plus Node.js default
+metrics. `/metrics` is unauthenticated by design and reachable only inside the
+compose networks — nginx does not proxy it. For alerting, add Alertmanager or
+Grafana alert rules on top (e.g. `rate(http_requests_total{status=~"5.."}[5m])`).
 
 ## AI-friendly documentation
 

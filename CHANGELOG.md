@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-28
+
+### Added
+- Monitoring profile: Prometheus (`v3.4.1`, 15s scrape, 15d retention) and Grafana (`12.1.0`, auto-provisioned Prometheus datasource, UI on `:3000`). Opt-in via `COMPOSE_PROFILES=monitoring` — the core stack starts without it. Config lives in `monitoring/`.
+- All services now expose Prometheus `/metrics` (toolkit `MetricsModule` v0.19.0: `http_requests_total`, `http_request_duration_seconds`, Node.js defaults). Unauthenticated, internal-network-only — nginx does not proxy it.
+
 ## [0.4.0] - 2026-09-28
 
 ### Fixed
