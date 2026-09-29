@@ -115,12 +115,14 @@ replacement for your message queue.
 ### Structure
 
 - `docker-compose.yml` — production services (nginx, auth, event, api, file, message, postgres)
-- `docker-compose.override.yml` — dev additions (MailHog, Redis, chat-server, PostgreSQL port, DB_SYNCHRONIZE=true)
+- `docker-compose.override.yml` — dev additions (MailHog, Redis, chat-server, PostgreSQL port, verbose DB logging)
 
 Docker Compose auto-merges both files. For production:
 ```bash
 docker compose -f docker-compose.yml up -d --build
 ```
+
+Database schemas need no setup: every service applies its TypeORM migrations on boot (`migrationsRun` is hardcoded in each service), so a fresh `pg_data` volume is initialized on first start. Migrations are generated in each service repo (`npm run migration:auto`) — never enable `synchronize`. If a service is ever scaled to multiple replicas, move migration out of boot and run it once per deploy instead (see the service READMEs).
 
 ### Networks
 
@@ -666,12 +668,13 @@ DB_PORT=5432
 DB_NAME=api_server
 DB_USER=root
 DB_PASSWORD=1234
-DB_SYNCHRONIZE=true
 SWAGGER_PREFIX=swagger
 EOF
 
 npm run dev
 ```
+
+The schema is created automatically: services apply their TypeORM migrations on boot, so the first start on an empty database initializes it (no `DB_SYNCHRONIZE` toggling).
 
 Swagger UI at `http://localhost:5000/swagger`.
 Health check at `http://localhost:5000/health`.

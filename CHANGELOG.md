@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-29
+### Changed
+- Compose no longer passes DB_SYNCHRONIZE / DB_MIGRATIONS_RUN to services: schema is owned exclusively by TypeORM migrations and every service applies pending migrations on boot (hardcoded). Dev override no longer flips DB_SYNCHRONIZE.
+- README: first-start docs updated (empty database initializes automatically on boot).
+
 ## [0.5.0] - 2026-09-28
 
 ### Added

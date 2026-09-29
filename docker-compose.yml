@@ -48,8 +48,6 @@ services:
       - DB_NAME=auth_server
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
-      - DB_MIGRATIONS_RUN=true
       - AES_SECRET=${AES_SECRET:?set AES_SECRET (32+ chars) in .env}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
@@ -110,8 +108,6 @@ services:
       - DB_NAME=event_server
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
-      - DB_MIGRATIONS_RUN=true
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_STRICT_MODE=${EVENT_STRICT_MODE:-false}
       - WORKER_INTERVAL_MS=500
@@ -150,8 +146,6 @@ services:
       - DB_NAME=api_server
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
-      - DB_MIGRATIONS_RUN=true
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
@@ -212,8 +206,6 @@ services:
       - DB_NAME=message_server
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE:-false}
-      - DB_MIGRATIONS_RUN=true
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
