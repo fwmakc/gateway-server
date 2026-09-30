@@ -1,0 +1,30 @@
+# Load-test override: raised rate limits so scenarios measure the services'
+# CPU ceiling instead of the brute-force protection. Applied on top of
+# docker-compose.yml by load-tests/run-load.sh (ceiling mode):
+#
+#   docker compose -f docker-compose.yml -f load-tests/docker-compose.loadtest.yml up -d
+#
+# NOT for production (or any publicly reachable deployment): with these
+# values the auth throttler no longer limits per-IP brute force.
+# nginx uses the generated load-tests/nginx-loadtest.conf (see run-load.sh).
+
+services:
+  auth-server:
+    environment:
+      - THROTTLE_DEFAULT_LIMIT=100000
+      - THROTTLE_AUTH_LIMIT=100000
+      - THROTTLE_AUTH_STRICT_LIMIT=100000
+      - THROTTLE_TOKEN_LIMIT=100000
+
+  nginx:
+    volumes:
+      - ./load-tests/nginx-loadtest.conf:/etc/nginx/nginx.conf:ro
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - backend
+    restart: unless-stopped

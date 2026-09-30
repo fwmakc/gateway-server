@@ -2,3 +2,7 @@
 *.log
 .DS_Store
 tmp/
+
+# load-test artifacts
+load-tests/out/
+load-tests/nginx-loadtest.conf

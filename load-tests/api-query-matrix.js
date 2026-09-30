@@ -93,11 +93,11 @@ export function medium_join() {
 }
 export function heavy_batch() {
   const where = encodeURIComponent(JSON.stringify({ isPublished: 1 }));
-  req(`${BASE}/posts/find?limit=50&relations=${relations}&where=${where}&order=${encodeURIComponent('{"viewCount":"DESC"}')}`);
+  req(`${BASE}/posts/find?limit=50&relations=${relations}&where=${where}&order=${encodeURIComponent('{"createdAt":"DESC"}')}`);
   sleep(0.3);
 }
 export function heavy_join() {
   const where = encodeURIComponent(JSON.stringify({ isPublished: 1 }));
-  req(`${BASE}/posts/find?limit=50&relations=${relations}&join=true&where=${where}&order=${encodeURIComponent('{"viewCount":"DESC"}')}`);
+  req(`${BASE}/posts/find?limit=50&relations=${relations}&join=true&where=${where}&order=${encodeURIComponent('{"createdAt":"DESC"}')}`);
   sleep(0.3);
 }

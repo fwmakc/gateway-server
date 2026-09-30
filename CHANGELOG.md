@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-09-30
+### Added
+- **Load-test harness** (`load-tests/`): `run-load.sh` (boot + seed + k6 + CPU
+  sampler + headline extraction; ceiling/realistic modes), scenarios
+  `auth-login-storm` (bcrypt cost-10 vs cost-12 pools), `auth-full-path`
+  (register → emailed code → login → self through the real event/mail
+  pipeline), `api-read-heavy` (through nginx), `event-webhook-load`
+  (ingest + MailHog drain watch), `seed-load.sql` (200 users, two bcrypt
+  cost pools). Numbers in `load-tests/results.md` (login ceiling ~15/s per
+  core at cost 10; cost 12 = 3.7×; edge absorbs 98–99% of floods at ~1 ms).
+- compose: `THROTTLE_*` env pass-through to auth-server (rate-limit tuning
+  per deployment, auth-server ≥ 0.8.10).
+
+### Fixed
+- stale `viewCount` ordering in the old k6 matrix/mixed scenarios (column
+  no longer exists) → `createdAt`; seed.sql updated to match the current
+  posts schema.
+
 ## [0.5.2] - 2026-09-30
 ### Fixed
 - `server_tokens off` в nginx.conf и nginx-ssl.conf (self-pentest): версия nginx больше не раскрывается в заголовках ответов и страницах ошибок.

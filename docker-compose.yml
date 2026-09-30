@@ -76,6 +76,13 @@ services:
       - FORM_LOGIN=${FORM_LOGIN:-http://localhost/login}
       # 2FA master switch (off by default; set TWO_FACTOR_ENABLED=true for dev/e2e)
       - TWO_FACTOR_ENABLED=${TWO_FACTOR_ENABLED:-false}
+      # Rate limiting (see auth-server .env.example; empty = code defaults)
+      - THROTTLE_DEFAULT_TTL=${THROTTLE_DEFAULT_TTL:-}
+      - THROTTLE_DEFAULT_LIMIT=${THROTTLE_DEFAULT_LIMIT:-}
+      - THROTTLE_AUTH_TTL=${THROTTLE_AUTH_TTL:-}
+      - THROTTLE_AUTH_LIMIT=${THROTTLE_AUTH_LIMIT:-}
+      - THROTTLE_AUTH_STRICT_LIMIT=${THROTTLE_AUTH_STRICT_LIMIT:-}
+      - THROTTLE_TOKEN_LIMIT=${THROTTLE_TOKEN_LIMIT:-}
       # SMTP (set in production; MailHog in dev via override)
       - SMTP_HOST=${SMTP_HOST:-mailhog}
       - SMTP_PORT=${SMTP_PORT:-1025}
