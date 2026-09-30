@@ -52,6 +52,62 @@ throttler second, per-IP per-route; bcrypt last). A flood from one IP never
 warms a single bcrypt. The residual risk is distributed-source floods —
 that is capacity planning (replicas), not rate limiting.
 
+## HA run — 2 replicas per service (2026-09-30, ceiling mode)
+
+Same runner, `SCALE=2` (`run-load.sh` adds `--scale <svc>=2` for
+auth/api/event/message). Each service got its own replica: nginx upstreams
+use `least_conn` + `resolve`, so every scenario below ran against both
+replicas (verified: nginx access log split ~50/50 between the two auth IPs).
+
+| Scenario | 1 replica | 2 replicas | Scaling |
+|----------|-----------|------------|---------|
+| Login storm, bcrypt cost 10 | 15.0 logins/s | **28.0 logins/s** (0.4% fail) | ~1.9× |
+| Login storm, bcrypt cost 12 | 4.1 logins/s | **7.9 logins/s** (1.8% fail) | ~1.9× |
+| Read-heavy API through nginx | 392 req/s, 0% fail | **394 req/s, 0% fail** | already latency-bound |
+| Full path (register→email→confirm→login→self) | 12.9 req/s | **8.8 req/s, 0% fail** | mail-queue bound (by design) |
+| Event ingest → webhook → MailHog | 91.6 events/s | **93.3 events/s, 0% fail** | mail-queue bound (by design) |
+
+The storm residual failures are the bcrypt queue tail at 20 VUs exceeding
+nginx's 10 s `proxy_read_timeout` (max latencies 9.4–11.6 s) — an edge
+config property of the ceiling run, not replica misbehavior.
+
+Reads and the event bus were already at their bottleneck (nginx edge
+latency, the deliberate 10 mails/s queue), so replicas don't move them —
+the win is where CPU is the ceiling: bcrypt logins scale near-linearly
+until both containers saturate.
+
+Two shared-state fixes made this run correct (both shipped):
+
+- **JWT signing keys** (gateway compose): auth used to mint *ephemeral*
+  RS256 keys per boot (`JWT_PRIVATE_KEY_PATH` unset) — replicas rejected
+  each other's tokens with 401s. The compose now runs a one-shot
+  `auth-keys` job that generates a shared key pair into the `auth_keys`
+  volume; auth mounts it read-only. Token issued by replica A validates on
+  replica B (and every other service via JWKS).
+- **Throttler storage** (`THROTTLE_STORAGE=redis` in this run): counters
+  in Redis, shared by both replicas (verified: the same Redis key
+  increments regardless of which replica serves the request). Without it,
+  2 replicas allow ~2× the configured limits.
+
+Known artifact of the first (pre-fix) run: ~1–4% of storm requests 500'd
+in the first seconds after boot — the Redis-backed throttler connected
+lazily and fail-closed on the not-yet-open stream. auth 0.9.0 connects at
+boot; the clean re-run shows only the timeout tail noted above.
+
+Also fixed during this run (pre-existing bugs the HA scenarios surfaced):
+
+- `event-server` audit store crashed every `audit.event` publish with
+  `No metadata for "AuditEventEntity"` — the entity was never registered
+  in the DataSource (`entities: [...]` listed only the bus entities), and
+  smoke never looked at the `audit_events` table. Audit records now append.
+- `load-tests/auth-full-path.js` read confirm codes from quoted-printable
+  mail bodies (`=3D` prefix) and accepted `200 {"success":false}` as
+  confirm success — both corrected; scenario is 0% fail end to end.
+- `load-tests/api-read-heavy.js` sent `relations=tags,category,account`
+  (comma string) — the API expects an array
+  (`relations[0][name]=tags&...`); the old form 500s in
+  `find.helper.ts` (toolkit regression worth fixing separately).
+
 ## Event pipeline under load
 
 - Ingest (`POST /events`, internal key): ~90 events/s sustained, p95 73 ms,

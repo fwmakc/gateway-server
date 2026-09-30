@@ -32,6 +32,29 @@ services:
   # CORE SERVICES
   # ═══════════════════════════════════════════════════════════════
 
+  # One-shot job: generates the shared RS256 key pair for JWT signing.
+  # Without it each auth replica mints ephemeral keys and tokens issued by
+  # one replica are rejected by the others (multi-replica 401s).
+  # Mount your own keys instead (read-only volume) to skip this job.
+  auth-keys:
+    image: node:22-alpine
+    volumes:
+      - auth_keys:/keys
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -f /keys/jwt-private.pem ] && [ -f /keys/jwt-public.pem ]; then
+          echo "JWT keys already present, skipping generation"
+          exit 0
+        fi
+        node -e "const c=require('crypto'),f=require('fs');const{publicKey,privateKey}=c.generateKeyPairSync('rsa',{modulusLength:2048});f.writeFileSync('/keys/jwt-private.pem',privateKey.export({type:'pkcs8',format:'pem'}));f.writeFileSync('/keys/jwt-public.pem',publicKey.export({type:'spki',format:'pem'}));"
+        chmod 644 /keys/jwt-private.pem /keys/jwt-public.pem
+        echo "JWT key pair generated"
+    restart: "no"
+    networks:
+      - backend
+
   auth-server:
     build:
       context: ..
@@ -83,6 +106,11 @@ services:
       - THROTTLE_AUTH_LIMIT=${THROTTLE_AUTH_LIMIT:-}
       - THROTTLE_AUTH_STRICT_LIMIT=${THROTTLE_AUTH_STRICT_LIMIT:-}
       - THROTTLE_TOKEN_LIMIT=${THROTTLE_TOKEN_LIMIT:-}
+      # Shared rate-limit storage: set THROTTLE_STORAGE=redis when scaling
+      # auth-server to multiple replicas (in-memory counters would multiply
+      # the effective limits by the replica count)
+      - THROTTLE_STORAGE=${THROTTLE_STORAGE:-}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       # SMTP (set in production; MailHog in dev via override)
       - SMTP_HOST=${SMTP_HOST:-mailhog}
       - SMTP_PORT=${SMTP_PORT:-1025}
@@ -91,7 +119,15 @@ services:
       - SMTP_SECURE=${SMTP_SECURE:-}
       - SMTP_SENDER_NAME=${SMTP_SENDER_NAME:-Test}
       - SMTP_SENDER_EMAIL=${SMTP_SENDER_EMAIL:-noreply@test.local}
+      # Shared RS256 keys (see auth-keys job above); without these files
+      # auth falls back to ephemeral per-replica keys
+      - JWT_PRIVATE_KEY_PATH=/keys/jwt-private.pem
+      - JWT_PUBLIC_KEY_PATH=/keys/jwt-public.pem
+    volumes:
+      - auth_keys:/keys:ro
     depends_on:
+      auth-keys:
+        condition: service_completed_successfully
       pgbouncer:
         condition: service_healthy
     networks:
@@ -251,6 +287,24 @@ services:
   # INFRASTRUCTURE
   # ═══════════════════════════════════════════════════════════════
 
+  # Shared rate-limit store for auth-server (THROTTLE_STORAGE=redis) —
+  # required for multi-replica auth so replicas enforce one shared limit.
+  # Counters are ephemeral; persistence is intentionally off.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - backend
+    mem_limit: 128m
+    cpus: 0.25
+    restart: unless-stopped
+
   pgbouncer:
     image: edoburu/pgbouncer:latest
     environment:
@@ -355,3 +409,4 @@ volumes:
   uploads_data:
   prometheus_data:
   grafana_data:
+  auth_keys:

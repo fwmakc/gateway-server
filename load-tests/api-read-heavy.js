@@ -27,7 +27,10 @@ export const options = {
   },
 };
 
-const RELATIONS = encodeURIComponent('tags,category,account');
+// relations is Array<RelationsDto> for the API: a comma string 500s since
+// toolkit 0.22 (relations.map is not a function) — pass the bracket form
+const RELATIONS =
+  'relations%5B0%5D%5Bname%5D=tags&relations%5B1%5D%5Bname%5D=category&relations%5B2%5D%5Bname%5D=account';
 const PUBLISHED = encodeURIComponent(JSON.stringify({ isPublished: 1 }));
 const HEAVY_ORDER = encodeURIComponent(JSON.stringify({ createdAt: 'DESC' }));
 
@@ -38,10 +41,10 @@ export default function () {
   if (roll < 0.6) {
     res = http.get(`${BASE}/posts/find?limit=10`);
   } else if (roll < 0.85) {
-    res = http.get(`${BASE}/posts/find?limit=20&relations=${RELATIONS}`);
+    res = http.get(`${BASE}/posts/find?limit=20&${RELATIONS}`);
   } else if (roll < 0.95) {
     res = http.get(
-      `${BASE}/posts/find?limit=50&relations=${RELATIONS}&where=${PUBLISHED}&order=${HEAVY_ORDER}`,
+      `${BASE}/posts/find?limit=50&${RELATIONS}&where=${PUBLISHED}&order=${HEAVY_ORDER}`,
     );
   } else {
     res = http.get(`${BASE}/posts/find?limit=10&where[id]=99999999`);

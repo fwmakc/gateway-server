@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-09-30
+### Added
+- **HA / multi-replica support**: `redis` service (7-alpine, no persistence —
+  the throttle counters are ephemeral) and `THROTTLE_STORAGE` / `REDIS_URL`
+  pass-through to auth-server. `THROTTLE_STORAGE=redis` + `--scale
+  auth-server=N` gives one shared rate-limit counter set instead of N
+  independent ones (auth-server ≥ 0.9.0); default (empty) keeps in-memory
+  counters — single-replica behavior unchanged.
+- **Shared JWT signing keys**: the one-shot `auth-keys` job generates an
+  RS256 pair into the `auth_keys` volume; auth-server mounts it read-only
+  (`JWT_PRIVATE_KEY_PATH` / `JWT_PUBLIC_KEY_PATH`). Previously auth minted
+  ephemeral per-boot keys — replicas rejected each other's tokens (401s on
+  every cross-replica request), every restart invalidated all tokens.
+- `run-load.sh`: `SCALE="auth-server=2 ..."` env adds `--scale` flags; the
+  health gate now checks every replica (`docker compose ps -q` + per-container
+  exec) and prints the replica count per service; `redis` joins the boot list.
+- HA load-test numbers in `load-tests/results.md` (2 replicas: bcrypt
+  login ceiling ~1.8×, reads/event bus unchanged at their bottlenecks).
+
 ## [0.5.3] - 2026-09-30
 ### Added
 - **Load-test harness** (`load-tests/`): `run-load.sh` (boot + seed + k6 + CPU

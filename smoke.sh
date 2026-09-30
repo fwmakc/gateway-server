@@ -18,6 +18,10 @@
 #   # local no-nginx run (services booted directly):
 #   AUTH_BASE=http://localhost:3001 API_BASE=http://localhost:5000 \
 #     EVENT_BASE=http://localhost:3005 PSQL_CMD="docker exec gateway-server-postgres-1 psql -U root" ./smoke.sh
+#
+# Note: designed for a single run. Re-running within a minute trips the
+# register/login rate limits (3-5/min per IP — behind nginx every client
+# shares nginx's IP): 429s there are the throttler working, not a failure.
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 

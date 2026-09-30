@@ -16,12 +16,22 @@
 #                verifies the edge protection behaves (429s are expected —
 #                the point is watching the limiters, not the app).
 #
+# Multi-replica soak (HA):
+#   THROTTLE_STORAGE=redis SCALE="auth-server=2 api-server=2 event-server=2
+#   message-server=2" ./load-tests/run-load.sh
+#   SCALE adds `--scale` flags to the boot command; auth counters then live
+#   in Redis so the replicas enforce one shared limit. SKIP_BOOT=1 keeps
+#   the current replica counts (a plain `up -d` would reset them to 1).
+#
 # Scenarios: storm10 storm12 fullpath read webhook
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 MODE="${MODE:-ceiling}"
+SCALE="${SCALE:-}"
+SCALE_OPTS=()
+for pair in $SCALE; do SCALE_OPTS+=(--scale "$pair"); done
 VUS_STORM="${VUS_STORM:-20}"
 VUS_FULLPATH="${VUS_FULLPATH:-5}"
 VUS_READ="${VUS_READ:-20}"
@@ -52,23 +62,33 @@ if [ "$MODE" = ceiling ]; then
       -e 's/burst=5/burst=100/' \
       nginx.conf > load-tests/nginx-loadtest.conf
   COMPOSE_FILES=(-f docker-compose.yml -f load-tests/docker-compose.loadtest.yml)
-  docker compose "${COMPOSE_FILES[@]}" up -d $BUILD_FLAG auth-server event-server api-server message-server nginx mailhog
 else
   COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.override.yml)
-  docker compose "${COMPOSE_FILES[@]}" up -d $BUILD_FLAG auth-server event-server api-server message-server nginx mailhog
 fi
+# redis: shared throttle storage when THROTTLE_STORAGE=redis (HA soak)
+docker compose "${COMPOSE_FILES[@]}" up -d $BUILD_FLAG \
+  ${SCALE_OPTS[@]+"${SCALE_OPTS[@]}"} \
+  redis auth-server event-server api-server message-server nginx mailhog \
+  || { echo "   boot failed (build or up error), aborting"; exit 1; }
 
 step "2. Waiting for /health"
 for i in $(seq 1 60); do
   ok=1
   for svc in auth-server:3001 api-server:5000 event-server:3005 message-server:3003; do
     name="${svc%%:*}"; port="${svc##*:}"
-    docker compose exec -T "$name" wget -qO- "http://127.0.0.1:$port/health" >/dev/null 2>&1 || ok=0
+    # every replica must answer (docker compose ps -q returns one id per replica)
+    for cid in $(docker compose ps -q "$name"); do
+      docker exec "$cid" wget -qO- "http://127.0.0.1:$port/health" >/dev/null 2>&1 || ok=0
+    done
   done
   [ "$ok" = 1 ] && break
   sleep 2
 done
 [ "$ok" = 1 ] && echo "   all services healthy" || { echo "   services not healthy, aborting"; exit 1; }
+for svc in auth-server api-server event-server message-server; do
+  n=$(docker compose ps -q "$svc" | wc -l | tr -d ' ')
+  echo "   $svc replicas: $n"
+done
 
 # ── 2. Seed ─────────────────────────────────────────────────────
 step "3. Seed (load users + posts)"

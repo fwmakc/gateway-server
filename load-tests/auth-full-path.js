@@ -37,7 +37,13 @@ function waitForEmail(to, timeoutMs = 20000) {
       const data = res.json();
       // MailHog v2 returns `items` (v1 returned `messages`)
       for (const msg of data.items ?? data.messages ?? []) {
-        const body = String(msg.Content?.Body ?? '');
+        // nodemailer sends HTML quoted-printable: the literal `=` of `?code=`
+        // arrives as `=3D`, plus soft line breaks `=\r\n` — decode first, or
+        // the extracted code is prefixed with `3D` and confirm rejects it.
+        const body = String(msg.Content?.Body ?? '')
+          .replace(/=\r\n/g, '')
+          .replace(/=\n/g, '')
+          .replace(/=3D/g, '=');
         const m = body.match(/[?&]code=([A-Za-z0-9_-]+)/);
         if (m) return m[1];
       }
@@ -66,7 +72,11 @@ export default function () {
   if (!registered || !code) return;
 
   res = http.get(`${AUTH}/account/methods/confirm/${code}`);
-  check(res, { 'confirm success': (r) => r.status < 300 });
+  check(res, {
+    // the API answers business failures with HTTP 200 + success:false —
+    // a bare status check would green-light an invalid code
+    'confirm success': (r) => r.status < 300 && r.json('success') === true,
+  });
 
   // 3. login
   res = http.post(
