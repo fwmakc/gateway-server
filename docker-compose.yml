@@ -48,7 +48,7 @@ services:
       - DB_NAME=auth_server
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
-      - AES_SECRET=${AES_SECRET:?set AES_SECRET (32+ chars) in .env}
+      - AES_SECRET=${AES_SECRET:?set AES_SECRET (exactly 32 chars) in .env}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005

@@ -62,7 +62,7 @@ function decodeBody(msg) {
   return body;
 }
 
-async function waitForEmail(to, subjectPart, timeoutMs = 30000) {
+async function waitForEmail(to, subjectPart, timeoutMs = 30000, excludeCode) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const res = await fetch(`${MAILHOG}/api/v2/search?kind=to&query=${encodeURIComponent(to)}&limit=100`);
@@ -72,7 +72,10 @@ async function waitForEmail(to, subjectPart, timeoutMs = 30000) {
       for (const msg of data.items ?? data.messages ?? []) {
         const subject = String(msg.Content?.Headers?.Subject ?? "");
         if (!subjectPart || subject.toLowerCase().includes(subjectPart.toLowerCase())) {
-          return { subject, html: decodeBody(msg) };
+          const html = decodeBody(msg);
+          // one-time codes: skip mails whose code was already consumed
+          if (excludeCode && html.includes(excludeCode)) continue;
+          return { subject, html };
         }
       }
     }
@@ -226,7 +229,7 @@ async function main() {
 
   const challenge2 = await pacedLogin({ username: EMAIL, password: PASSWORD2 });
   check("login with email-2FA returns mfa_token", challenge2.json?.twoFactorRequired === true && !!challenge2.json?.mfa_token, JSON.stringify(challenge2.json)?.slice(0, 120));
-  const codeMail2 = await waitForEmail(EMAIL, "verification code", 30000);
+  const codeMail2 = await waitForEmail(EMAIL, "verification code", 30000, emailCode1);
   const emailCode2 = codeMail2 && sixDigits(codeMail2.html);
   check("login challenge email arrived with code", !!emailCode2, "no new code mail in 30s");
   const verifyEmail = await api("POST", "/account/methods/2fa/verify", { body: { mfa_token: challenge2.json.mfa_token, code: emailCode2 } });
