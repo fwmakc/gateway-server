@@ -74,6 +74,8 @@ services:
       - FORM_RESET=${FORM_RESET:-http://localhost/reset}
       - FORM_RESET_COMPLETE=${FORM_RESET_COMPLETE:-http://localhost/reset/complete}
       - FORM_LOGIN=${FORM_LOGIN:-http://localhost/login}
+      # 2FA master switch (off by default; set TWO_FACTOR_ENABLED=true for dev/e2e)
+      - TWO_FACTOR_ENABLED=${TWO_FACTOR_ENABLED:-false}
       # SMTP (set in production; MailHog in dev via override)
       - SMTP_HOST=${SMTP_HOST:-mailhog}
       - SMTP_PORT=${SMTP_PORT:-1025}
