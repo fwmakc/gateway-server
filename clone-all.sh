@@ -13,7 +13,7 @@ REPOS=(
     "message-server"
     "file-server"
     "chat-server"
-    "scaffold"
+    "api-server-scaffold"
 )
 
 BASE="$(cd "$(dirname "$0")" && pwd)"

@@ -21,7 +21,7 @@ $repos = @(
     "message-server",
     "file-server",
     "chat-server",
-    "scaffold"
+    "api-server-scaffold"
 )
 
 $base = $PSScriptRoot ? $PSScriptRoot : Get-Location
