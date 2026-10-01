@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.1] - 2026-10-01
+
+### Security (Wave 6 audit)
+
+- **Edge no longer proxies `/mail`** (both `nginx.conf` and `nginx-ssl.conf`):
+  the location proxied message-server's `POST /mail/send*` unauthenticated.
+  Mail flows through the event bus; direct sends stay internal-key-guarded
+  inside the backend network (message-server 0.7.0 adds the guards too).
+- **`/metrics` returns 404 at the edge** — api-server's Prometheus telemetry
+  (route counters, heap/GC) fell into `location /` and was publicly proxied,
+  contradicting `monitoring/prometheus.yml`'s documented intent; Prometheus
+  keeps scraping in-network.
+- **Auth regex extended** with `users|roles|clients|userinfo`: these
+  auth-server routes silently fell into `location /` (api-server) and 404'd
+  through the gateway — `/userinfo` (OIDC bearer endpoint) and role/user
+  management are now reachable.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
