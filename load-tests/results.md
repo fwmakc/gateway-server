@@ -118,6 +118,29 @@ Also fixed during this run (pre-existing bugs the HA scenarios surfaced):
   (5 s × 50). A 5.5k-event backlog drains in ~9 min — fine for real
   registration traffic, worth remembering when wiring up bulk imports.
 
+## Files: local vs s3 storage (2026-10-01, Wave 5)
+
+Scenario `files-upload.js`: JWT login in setup, then per iteration a
+multipart `POST /files/upload` (~64 KB) + `GET` of the returned URL,
+10 VUs / 30 s, requests direct to file-server:3002 (edge limiters
+bypassed — the comparison targets the storage backend, not nginx).
+Stack: file-server ×2 replicas in both runs (s3 run after the HA
+scale-up, local run right after switching the same two replicas back).
+
+| backend            | req/s | avg    | p(95)  | failed |
+|--------------------|-------|--------|--------|--------|
+| local (uploads_data volume) | 50.5 | 6.8 ms | 9.8 ms | 0% |
+| s3 (SeaweedFS 3.80, single node) | 51.0 | 8.1 ms | 13.3 ms | 0% |
+
+- Same throughput at this concurrency: the loop's `sleep(0.2)` keeps
+  both backends far from saturation; the storage choice costs ~+19%
+  avg / +35% p(95) latency per request, invisible at this scale.
+- For real capacity numbers the scenario should be re-run with more
+  VUs and no sleep; kept as-is because the point of the run is the
+  delta, not the ceiling.
+- Presigned PUT/GET bypass file-server entirely — a client→bucket
+  direct path does not appear in these numbers at all.
+
 ## Environment notes for reproducers
 
 - `run-load.sh` ceiling mode raises the auth throttler via

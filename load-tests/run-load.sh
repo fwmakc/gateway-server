@@ -23,7 +23,7 @@
 #   in Redis so the replicas enforce one shared limit. SKIP_BOOT=1 keeps
 #   the current replica counts (a plain `up -d` would reset them to 1).
 #
-# Scenarios: storm10 storm12 fullpath read webhook
+# Scenarios: storm10 storm12 fullpath read webhook files
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -39,6 +39,13 @@ VUS_WEBHOOK="${VUS_WEBHOOK:-10}"
 DURATION="${DURATION:-60s}"
 SCENARIOS=("$@")
 [ ${#SCENARIOS[@]} -eq 0 ] && SCENARIOS=(storm10 storm12 fullpath read webhook)
+
+# file-server joins the boot set only when the files scenario is requested
+FILE_SERVICES=()
+VUS_FILES="${VUS_FILES:-10}"
+for s in "${SCENARIOS[@]}"; do
+  [ "$s" = "files" ] && FILE_SERVICES=(file-server)
+done
 
 OUT=load-tests/out
 mkdir -p "$OUT"
@@ -66,10 +73,11 @@ else
   COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.override.yml)
 fi
 # redis: shared throttle storage when THROTTLE_STORAGE=redis (HA soak)
-docker compose "${COMPOSE_FILES[@]}" up -d $BUILD_FLAG \
-  ${SCALE_OPTS[@]+"${SCALE_OPTS[@]}"} \
-  redis auth-server event-server api-server message-server nginx mailhog \
-  || { echo "   boot failed (build or up error), aborting"; exit 1; }
+  docker compose "${COMPOSE_FILES[@]}" up -d $BUILD_FLAG \
+    ${SCALE_OPTS[@]+"${SCALE_OPTS[@]}"} \
+    redis auth-server event-server api-server message-server nginx mailhog \
+    ${FILE_SERVICES[@]+"${FILE_SERVICES[@]}"} \
+    || { echo "   boot failed (build or up error), aborting"; exit 1; }
 
 step "2. Waiting for /health"
 for i in $(seq 1 60); do
@@ -207,6 +215,13 @@ for s in "${SCENARIOS[@]}"; do
       done
       AFTER="$PREV"
       echo "   MailHog messages: $BEFORE → $AFTER (delivered $((AFTER - BEFORE)) total; stable after ~$((10 * i))s)"
+      ;;
+    files)
+      # file-server must be part of the boot set for this scenario; storage
+      # mode (local vs s3) follows whatever FILE_STORAGE the stack was
+      # brought up with (docker-compose.s3.yml → s3, base compose → local)
+      step "9. File upload/download (64 KB) — storage as booted"
+      k6 files "AUTH_URL=http://auth-server:3001" "FILES_URL=http://file-server:3002" "VUS=$VUS_FILES" "DURATION=$DURATION" -- files-upload.js
       ;;
     *) echo "unknown scenario: $s" ;;
   esac
