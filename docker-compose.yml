@@ -74,6 +74,8 @@ services:
       - AES_SECRET=${AES_SECRET:?set AES_SECRET (exactly 32 chars) in .env}
       - AUTH_SERVER_URL=http://auth-server:3001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # Rotation window: old key stays valid until every caller is switched (docs/secret-rotation.md)
+      - INTERNAL_API_KEY_PREVIOUS=${INTERNAL_API_KEY_PREVIOUS:-}
       - EVENT_SERVER_URL=http://event-server:3005
       # Social SSO (set real values in production)
       - LEADER_CLIENT_ID=${LEADER_CLIENT_ID:-dummy-client-id}
@@ -123,6 +125,12 @@ services:
       # auth falls back to ephemeral per-replica keys
       - JWT_PRIVATE_KEY_PATH=/keys/jwt-private.pem
       - JWT_PUBLIC_KEY_PATH=/keys/jwt-public.pem
+      # Rotation window: retired public keys stay verifiable (and listed in
+      # JWKS) until old tokens expire — scripts/rotate-jwt-keys.sh + docs
+      - JWT_PREVIOUS_PUBLIC_KEY_PATHS=${JWT_PREVIOUS_PUBLIC_KEY_PATHS:-}
+      # AES rotation: new key as the next version; auth re-encrypts stored
+      # envelopes via scripts/reencrypt-aes.mjs before the old key is retired
+      - AES_SECRET_V2=${AES_SECRET_V2:-}
       # Token binding: issued tokens carry iss/aud and every service with the
       # SAME two vars enforces them. Keep values identical stack-wide and roll
       # out in one deploy (validators reject tokens issued without the claims).
@@ -159,6 +167,8 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # Rotation window: old key stays valid until every caller is switched (docs/secret-rotation.md)
+      - INTERNAL_API_KEY_PREVIOUS=${INTERNAL_API_KEY_PREVIOUS:-}
       - EVENT_STRICT_MODE=${EVENT_STRICT_MODE:-false}
       - WORKER_INTERVAL_MS=500
       - WORKER_MAX_INTERVAL_MS=2000
@@ -204,6 +214,8 @@ services:
       - JWT_ISSUER=${JWT_ISSUER:-}
       - JWT_AUDIENCE=${JWT_AUDIENCE:-}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # Rotation window: old key stays valid until every caller is switched (docs/secret-rotation.md)
+      - INTERNAL_API_KEY_PREVIOUS=${INTERNAL_API_KEY_PREVIOUS:-}
       - EVENT_SERVER_URL=http://event-server:3005
     depends_on:
       pgbouncer:
@@ -268,6 +280,8 @@ services:
       - JWT_ISSUER=${JWT_ISSUER:-}
       - JWT_AUDIENCE=${JWT_AUDIENCE:-}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # Rotation window: old key stays valid until every caller is switched (docs/secret-rotation.md)
+      - INTERNAL_API_KEY_PREVIOUS=${INTERNAL_API_KEY_PREVIOUS:-}
       - EVENT_SERVER_URL=http://event-server:3005
       - WEBHOOK_URL=http://message-server:3003/webhooks/events
       # Shared HMAC secret for signed event deliveries — the SAME value goes
