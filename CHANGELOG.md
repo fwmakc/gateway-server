@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-01
+### Added
+- **Optional JWT token binding** (`JWT_ISSUER` / `JWT_AUDIENCE` in `.env`):
+  when set, auth-server embeds `iss`/`aud` claims in every token (requires
+  auth-server ≥ 0.10.0, toolkit ≥ 0.24.1 in api/file/message) and every
+  service receiving the two vars enforces them. Keep the values identical
+  stack-wide and roll out in one deployment — validators reject tokens
+  issued without the claims. Empty (default) keeps the legacy no-claims
+  behavior, so existing deployments keep working until they opt in.
+### Fixed
+- Webhook delivery hardening pass-through (with event-server 0.8.4 /
+  message-server 0.6.9): `WEBHOOK_SECRET` on event + message (HMAC-signed
+  deliveries), `WEBHOOK_EGRESS_MODE` / `WEBHOOK_ALLOW_HOSTS` on event
+  (subscriber-URL SSRF policy).
+
 ## [0.5.4] - 2026-09-30
 ### Added
 - **HA / multi-replica support**: `redis` service (7-alpine, no persistence —

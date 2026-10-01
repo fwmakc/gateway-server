@@ -123,6 +123,11 @@ services:
       # auth falls back to ephemeral per-replica keys
       - JWT_PRIVATE_KEY_PATH=/keys/jwt-private.pem
       - JWT_PUBLIC_KEY_PATH=/keys/jwt-public.pem
+      # Token binding: issued tokens carry iss/aud and every service with the
+      # SAME two vars enforces them. Keep values identical stack-wide and roll
+      # out in one deploy (validators reject tokens issued without the claims).
+      - JWT_ISSUER=${JWT_ISSUER:-}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
     volumes:
       - auth_keys:/keys:ro
     depends_on:
@@ -196,6 +201,8 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - AUTH_SERVER_URL=http://auth-server:3001
+      - JWT_ISSUER=${JWT_ISSUER:-}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
     depends_on:
@@ -225,6 +232,8 @@ services:
       - IP=0.0.0.0
       - PORT=3002
       - AUTH_SERVER_URL=http://auth-server:3001
+      - JWT_ISSUER=${JWT_ISSUER:-}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
       - UPLOADS_PATH=/app/public/uploads
       - UPLOADS_URL=/uploads
     volumes:
@@ -256,6 +265,8 @@ services:
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - AUTH_SERVER_URL=http://auth-server:3001
+      - JWT_ISSUER=${JWT_ISSUER:-}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
       - WEBHOOK_URL=http://message-server:3003/webhooks/events
