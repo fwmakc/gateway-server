@@ -161,6 +161,10 @@ services:
       - BATCH_SIZE=50
       - DEFAULT_HTTP_TIMEOUT_MS=10000
       - DB_POOL_MAX=50
+      # Egress policy for subscriber webhook URLs (anti-SSRF):
+      # internal = trusted docker network (default) | public | allowlist
+      - WEBHOOK_EGRESS_MODE=${WEBHOOK_EGRESS_MODE:-internal}
+      - WEBHOOK_ALLOW_HOSTS=${WEBHOOK_ALLOW_HOSTS:-}
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -255,6 +259,10 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
       - EVENT_SERVER_URL=http://event-server:3005
       - WEBHOOK_URL=http://message-server:3003/webhooks/events
+      # Shared HMAC secret for signed event deliveries — the SAME value goes
+      # to event-server (signs) and message-server (verifies). Leave empty to
+      # stay on the legacy internal-key transport. Generate: openssl rand -hex 32
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       # Queue worker
       - WORKER_INTERVAL_MS=5000
       - WORKER_MAX_INTERVAL_MS=25000
