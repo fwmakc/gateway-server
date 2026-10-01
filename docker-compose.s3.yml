@@ -1,0 +1,94 @@
+# ═══════════════════════════════════════════════════════════════
+# S3/MinIO storage profile — override on top of docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.s3.yml up -d
+#
+# Requires in .env: S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY.
+# Dev: presigned URLs go to http://127.0.0.1:9000 (published MinIO port).
+# Prod: set S3_PRESIGN_ENDPOINT=https://s3.<domain> (subdomain passthrough
+# to minio:9000 — SigV4 covers the Host, path rewrites break signatures;
+# see docs/s3-storage.md).
+#
+# SeaweedFS instead of MinIO: replace the `minio` service below (image
+# chrislusf/seaweedfs, `server -s3 -s3.port=9000 -dir=/data`, Apache 2.0)
+# — file-server speaks plain S3 and needs no other changes.
+# ═══════════════════════════════════════════════════════════════
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      # MinIO root credentials double as file-server's S3 keys
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+    ports:
+      # dev-only: client → bucket presigned traffic (127.0.0.1 = not exposed
+      # to the network). In prod drop this port and use the edge subdomain.
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - minio_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
+  # One-shot job: idempotent bucket bootstrap, private by default (no
+  # anonymous policy — downloads go through presigned URLs or the CDN case
+  # from docs/s3-storage.md, never through a public bucket).
+  bucket-init:
+    image: minio/mc:latest
+    entrypoint: >
+      /bin/sh -c '
+      mc alias set local http://minio:9000 "$${S3_ACCESS_KEY_ID}" "$${S3_SECRET_ACCESS_KEY}" &&
+      mc mb --ignore-existing "local/$${S3_BUCKET}" &&
+      echo "bucket $$S3_BUCKET ready"
+      '
+    environment:
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      - S3_BUCKET=${S3_BUCKET:?set S3_BUCKET in .env}
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+
+  file-server:
+    environment:
+      - FILE_STORAGE=s3
+      - S3_BUCKET=${S3_BUCKET:?set S3_BUCKET in .env}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_FORCE_PATH_STYLE=true
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      # Where the CLIENT fetches presigned URLs from. Dev default: published
+      # MinIO port. Prod: edge subdomain (S3_PRESIGN_ENDPOINT=https://s3.…)
+      - S3_PRESIGN_ENDPOINT=${S3_PRESIGN_ENDPOINT:-http://127.0.0.1:9000}
+      - S3_PRESIGN_EXPIRES_SEC=${S3_PRESIGN_EXPIRES_SEC:-900}
+      # S3_PUBLIC_URL: set only for a public-bucket/CDN setup (returned URLs
+      # point there instead of the download proxy)
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-}
+      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-50}
+    volumes: []
+    depends_on:
+      bucket-init:
+        condition: service_completed_successfully
+    networks:
+      - frontend
+      - backend
+
+networks:
+  backend:
+
+volumes:
+  minio_data:

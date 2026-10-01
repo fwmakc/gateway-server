@@ -15,6 +15,8 @@
 #   ./smoke.sh                       # through nginx: BASE=http://localhost (auth+api checked)
 #   BASE=http://example.com ./smoke.sh
 #   EVENT_BASE=http://localhost:3005 # optional: also health-check event/message/file directly
+#   S3_SMOKE=1                       # also exercise the s3 path (presigned
+#     PUT/GET + proxy upload) against FILE_BASE; requires FILE_STORAGE=s3
 #   # local no-nginx run (services booted directly):
 #   AUTH_BASE=http://localhost:3001 API_BASE=http://localhost:5000 \
 #     EVENT_BASE=http://localhost:3005 PSQL_CMD="docker exec gateway-server-postgres-1 psql -U root" ./smoke.sh
@@ -97,9 +99,84 @@ CONFIRMED="$(psql event_server "SELECT count(*) FROM events WHERE pattern = 'use
 [ "${CONFIRMED:-0}" -ge 1 ] && pass "user.confirmed for $EMAIL recorded ($CONFIRMED)" || fail "user.confirmed for $EMAIL not found"
 
 printf '\n════════════════════════════════════\n'
-if [ "$FAILURES" -eq 0 ]; then
-  echo 'SMOKE PASSED'
+if [ "$FAILURES" -ne 0 ]; then
+  echo "SMOKE FAILED — $FAILURES check(s) failed"
+  exit 1
+fi
+echo 'SMOKE PASSED'
+if [ "${S3_SMOKE:-0}" != "1" ]; then
   exit 0
 fi
-echo "SMOKE FAILED — $FAILURES check(s) failed"
+
+# ─────────────────────────────────────────────────────────────────
+# S3 storage path (FILE_STORAGE=s3), S3_SMOKE=1: exercises the
+# presigned PUT/GET roundtrip and the multipart proxy upload.
+# ─────────────────────────────────────────────────────────────────
+FILE_BASE="${FILE_BASE:-$BASE}"
+
+step "8. File storage: s3 backend"
+CODE="$(status_of "$FILE_BASE/health/storage")"
+if [ "$CODE" = "200" ]; then
+  STORAGE="$(curl -s "$FILE_BASE/health/storage")"
+  printf '%s' "$STORAGE" | grep -q '"storage":"s3"' \
+    && pass "/health/storage → s3" \
+    || fail "/health/storage → $STORAGE (expected storage:s3)"
+else
+  fail "/health/storage → $CODE (expected 200)"
+fi
+
+if [ -z "$TOKEN" ]; then
+  fail "s3 presign checks skipped (no token from step 4)"
+  exit 1
+fi
+
+PAYLOAD="smoke-s3-$(date +%s)"
+printf '%s' "$PAYLOAD" > "smoke_s3_$$.txt"
+
+step "9. Presigned upload (client → bucket direct)"
+PRESIGN_RES="$(curl -s -X POST "$FILE_BASE/files/presign/upload" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"filename\":\"smoke_s3_$$.txt\",\"folder\":\"smoke\"}")"
+PRESIGN_URL="$(printf '%s' "$PRESIGN_RES" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')"
+PRESIGN_KEY="$(printf '%s' "$PRESIGN_RES" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')"
+if [ -n "$PRESIGN_URL" ] && [ -n "$PRESIGN_KEY" ]; then
+  pass "presign/upload → url + key ($PRESIGN_KEY)"
+  PUT_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+    -H 'Content-Type: text/plain' --upload-file "smoke_s3_$$.txt" "$PRESIGN_URL")"
+  [ "$PUT_CODE" = "200" ] && pass "presigned PUT → 200" || fail "presigned PUT → $PUT_CODE (expected 200)"
+  DOWN_RES="$(curl -s -X POST "$FILE_BASE/files/presign/download" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"key\":\"$PRESIGN_KEY\"}")"
+  DOWN_URL="$(printf '%s' "$DOWN_RES" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')"
+  if [ -n "$DOWN_URL" ]; then
+    GOT="$(curl -s "$DOWN_URL")"
+    [ "$GOT" = "$PAYLOAD" ] && pass "presigned GET roundtrip" || fail "presigned GET roundtrip → '$GOT'"
+  else
+    fail "presign/download → $DOWN_RES"
+  fi
+else
+  fail "presign/upload → $PRESIGN_RES"
+fi
+
+step "10. Proxy upload (multipart through the gateway)"
+UP_RES="$(curl -s -X POST "$FILE_BASE/files/upload" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@smoke_s3_$$.txt;type=text/plain" -F 'folder=smoke')"
+UP_URL="$(printf '%s' "$UP_RES" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')"
+if [ -n "$UP_URL" ]; then
+  pass "upload → $UP_URL"
+  DL_CODE="$(status_of "$FILE_BASE$UP_URL")"
+  [ "$DL_CODE" = "200" ] && pass "download via $UP_URL → 200" || fail "download via $UP_URL → $DL_CODE (expected 200)"
+else
+  fail "upload → $UP_RES"
+fi
+
+rm -f "smoke_s3_$$.txt"
+
+printf '\n════════════════════════════════════\n'
+if [ "$FAILURES" -eq 0 ]; then
+  echo 'S3 SMOKE PASSED'
+  exit 0
+fi
+echo "S3 SMOKE FAILED — $FAILURES check(s) failed"
 exit 1
