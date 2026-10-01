@@ -1,63 +1,92 @@
 # ═══════════════════════════════════════════════════════════════
-# S3/MinIO storage profile — override on top of docker-compose.yml.
+# S3 storage profile — override on top of docker-compose.yml.
+#
+# Default backend: SeaweedFS (Apache 2.0, actively developed). MinIO is NOT
+# the default anymore: it deleted its Docker Hub images (2025-09) and froze
+# its open-source edition (repo archived 2025-04, no security patches) —
+# quay.io requires an authenticated login. If you run a private registry
+# with MinIO anyway, swap the `s3` service below (command `server /data`,
+# env MINIO_ROOT_USER/MINIO_ROOT_PASSWORD, same ports) — file-server speaks
+# plain S3 and needs no other changes. See docs/s3-storage.md.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.s3.yml up -d
 #
 # Requires in .env: S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY.
-# Dev: presigned URLs go to http://127.0.0.1:9000 (published MinIO port).
+# Dev: presigned URLs go to http://127.0.0.1:9000 (published S3 port).
 # Prod: set S3_PRESIGN_ENDPOINT=https://s3.<domain> (subdomain passthrough
-# to minio:9000 — SigV4 covers the Host, path rewrites break signatures;
-# see docs/s3-storage.md).
-#
-# SeaweedFS instead of MinIO: replace the `minio` service below (image
-# chrislusf/seaweedfs, `server -s3 -s3.port=9000 -dir=/data`, Apache 2.0)
-# — file-server speaks plain S3 and needs no other changes.
+# to s3:9000 — SigV4 covers the Host, path rewrites break signatures).
 # ═══════════════════════════════════════════════════════════════
 
 services:
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  s3:
+    image: chrislusf/seaweedfs:3.80
+    # S3 auth comes from a generated config (no config = anonymous S3 API):
+    # one admin identity built from the same credentials file-server uses.
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /data/s3cfg
+        cat > /data/s3cfg/s3.json <<EOF
+        {
+          "identities": [
+            {
+              "name": "admin",
+              "credentials": [
+                { "accessKey": "$${S3_ACCESS_KEY_ID}", "secretKey": "$${S3_SECRET_ACCESS_KEY}" }
+              ],
+              "actions": ["Admin", "Read", "Write", "List"]
+            }
+          ]
+        }
+        EOF
+        exec weed server -dir=/data -s3 -s3.port=9000 \
+          -s3.config=/data/s3cfg/s3.json -master.volumeSizeLimitMB=4096
     environment:
-      # MinIO root credentials double as file-server's S3 keys
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
     ports:
       # dev-only: client → bucket presigned traffic (127.0.0.1 = not exposed
       # to the network). In prod drop this port and use the edge subdomain.
       - "127.0.0.1:9000:9000"
     volumes:
-      - minio_data:/data
+      - s3_data:/data
     networks:
       - backend
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 12
+      start_period: 15s
     mem_limit: 512m
     cpus: 1.0
     restart: unless-stopped
 
   # One-shot job: idempotent bucket bootstrap, private by default (no
   # anonymous policy — downloads go through presigned URLs or the CDN case
-  # from docs/s3-storage.md, never through a public bucket).
+  # from docs/s3-storage.md, never through a public bucket). Retries: the
+  # S3 port may answer before the filer is fully ready right after boot.
   bucket-init:
-    image: minio/mc:latest
+    image: amazon/aws-cli:latest
     entrypoint: >
       /bin/sh -c '
-      mc alias set local http://minio:9000 "$${S3_ACCESS_KEY_ID}" "$${S3_SECRET_ACCESS_KEY}" &&
-      mc mb --ignore-existing "local/$${S3_BUCKET}" &&
-      echo "bucket $$S3_BUCKET ready"
+      i=0;
+      while [ $$i -lt 15 ]; do
+        aws s3api head-bucket --endpoint-url http://s3:9000 --bucket "$$S3_BUCKET" 2>/dev/null && { echo "bucket $$S3_BUCKET ready (exists)"; exit 0; };
+        aws s3api create-bucket --endpoint-url http://s3:9000 --bucket "$$S3_BUCKET" 2>/dev/null && { echo "bucket $$S3_BUCKET created"; exit 0; };
+        i=$$((i+1)); sleep 2;
+      done;
+      echo "bucket-init: bucket $$S3_BUCKET not ready after retries"; exit 1
       '
     environment:
-      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
-      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      - AWS_DEFAULT_REGION=${S3_REGION:-us-east-1}
       - S3_BUCKET=${S3_BUCKET:?set S3_BUCKET in .env}
     depends_on:
-      minio:
+      s3:
         condition: service_healthy
     networks:
       - backend
@@ -67,12 +96,12 @@ services:
     environment:
       - FILE_STORAGE=s3
       - S3_BUCKET=${S3_BUCKET:?set S3_BUCKET in .env}
-      - S3_ENDPOINT=http://minio:9000
+      - S3_ENDPOINT=http://s3:9000
       - S3_FORCE_PATH_STYLE=true
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
       # Where the CLIENT fetches presigned URLs from. Dev default: published
-      # MinIO port. Prod: edge subdomain (S3_PRESIGN_ENDPOINT=https://s3.…)
+      # S3 port. Prod: edge subdomain (S3_PRESIGN_ENDPOINT=https://s3.…)
       - S3_PRESIGN_ENDPOINT=${S3_PRESIGN_ENDPOINT:-http://127.0.0.1:9000}
       - S3_PRESIGN_EXPIRES_SEC=${S3_PRESIGN_EXPIRES_SEC:-900}
       # S3_PUBLIC_URL: set only for a public-bucket/CDN setup (returned URLs
@@ -91,4 +120,4 @@ networks:
   backend:
 
 volumes:
-  minio_data:
+  s3_data:

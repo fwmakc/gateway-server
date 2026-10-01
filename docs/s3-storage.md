@@ -1,13 +1,28 @@
-# S3-хранилище (Wave 5): MinIO-профиль, presigned URLs, эксплуатация
+# S3-хранилище (Wave 5): профиль, presigned URLs, эксплуатация
 
 ## Зачем
 
 `FILE_STORAGE=local` держит файлы на диске контейнера (`uploads_data` volume) —
 горизонтальное масштабирование file-server невозможно (реплики не видят файлы
-друг друга) и бэкапы отдельны от БД. S3-профиль переносит хранение в MinIO
-(де-факто стандарт self-hosted S3; SeaweedFS — Apache-2.0 drop-in, см. ниже):
-общий бакет для всех реплик, presigned URLs для прямого трафика клиент↔бакет,
-стандартные инструменты бэкапа/репликации.
+друг друга) и бэкапы отдельны от БД. S3-профиль переносит хранение в объектный
+бакет: общий бакет для всех реплик, presigned URLs для прямого трафика
+клиент↔бакет, стандартные инструменты бэкапа/репликации.
+
+## Бэкенд: SeaweedFS (дефолт), MinIO — не рекомендуется
+
+Дефолт профиля — **SeaweedFS** (`chrislusf/seaweedfs`, Apache 2.0, живой
+проект). MinIO больше **не** дефолт: в сентябре 2025 MinIO удалил свои образы
+с Docker Hub (`minio/minio`, `minio/mc` — репозитории снесены), а
+open-source-редакция заморожена с апреля 2025 (репозиторий заархивирован,
+security-патчей не будет); quay.io отдаёт образы только после логина. Если в
+частном registry MinIO уже есть — сервис `s3` в профиле заменяется на него
+1-в-1 (см. ниже), file-server говорит на обычном S3 и разницы не видит.
+
+Специфика SeaweedFS, обнаруженная на стенде: SigV4-верификация SeaweedFS 3.80
+отвергает presigned URL с параметром `x-amz-checksum-mode` (SDK v3 по умолчанию
+его добавляет). file-server ≥0.7.3 отключает checksum-параметры на presign-клиенте
+(`requestChecksumCalculation`/`responseChecksumValidation: WHEN_REQUIRED`) —
+регресс-тест в `presign.spec.ts`. Версии SeaweedFS новее 3.80 не проверялись.
 
 ## Включение
 
@@ -16,22 +31,25 @@
 docker compose -f docker-compose.yml -f docker-compose.s3.yml up -d
 ```
 
-Профиль добавляет: `minio` (backend network, published `127.0.0.1:9000` только
-для dev), одноразовый `bucket-init` (идемпотентное создание бакета, приватный
-по умолчанию) и переопределяет `file-server`: `FILE_STORAGE=s3`, S3-окружение,
-`volumes: []` (uploads_data больше не маунтится).
+Профиль добавляет: сервис `s3` (backend network, published `127.0.0.1:9000`
+только для dev; S3-auth генерируется из `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`),
+одноразовый `bucket-init` (идемпотентное создание бакета с retry — S3-порт
+SeaweedFS отвечает раньше готовности filer'а; бакет приватный по умолчанию)
+и переопределяет `file-server`: `FILE_STORAGE=s3`, S3-окружение, `volumes: []`
+(uploads_data больше не маунтится).
 
-Проверка: `curl http://localhost:3002/health/storage` →
-`{"status":"ok","storage":"s3"}`.
+Проверка: `curl http://<gateway>/health/storage` →
+`{"status":"ok","storage":"s3"}` (в nginx проба заведена на file-server,
+`location = /health/storage` — годится для LB).
 
 ## Топология трафика
 
 | Путь | Канал | Лимит размера |
 |------|-------|---------------|
-| `POST /files/upload` (прокси) | клиент → nginx → file-server → minio | nginx `client_max_body_size` + `MAX_UPLOAD_SIZE` (multer, 413) |
+| `POST /files/upload` (прокси) | клиент → nginx → file-server → s3 | nginx `client_max_body_size` + `MAX_UPLOAD_SIZE` (multer, 413) |
 | presigned PUT (прямой) | клиент → `S3_PRESIGN_ENDPOINT` (мимо nginx) | потолок бакета; nginx не участвует |
 | presigned GET (прямой) | клиент ← `S3_PRESIGN_ENDPOINT` | — |
-| служебный (get/delete/head) | file-server → `S3_ENDPOINT` (`http://minio:9000`) | — |
+| служебный (get/head/delete) | file-server → `S3_ENDPOINT` (`http://s3:9000`) | — |
 
 Presigned-маршруты: `POST /files/presign/upload` `{filename, folder?}` →
 `{url, key, expiresIn}`; `POST /files/presign/download` `{key}` → `{url,
@@ -52,7 +70,7 @@ server {
   server_name s3.example.com;
   client_max_body_size 0;              # прямой трафик, nginx не режет
   location / {
-    proxy_pass http://minio:9000;      # Host passthrough (дефолт proxy_pass)
+    proxy_pass http://s3:9000;         # Host passthrough (дефолт proxy_pass)
     proxy_set_header Host $host;       # ОБЯЗАТЕЛЬНО: подпись покрывает Host
     proxy_request_buffering off;       # стриминг больших PUT
   }
@@ -60,15 +78,16 @@ server {
 ```
 
 `S3_PRESIGN_ENDPOINT=https://s3.example.com` в `.env`. Путь-rewrite
-(`MINIO_SERVER_URL` с префиксом пути, `/s3/...` location) ломает canonical
-path SigV4 — не использовать; только subdomain или прямой порт.
+(`/s3/...` location) ломает canonical path SigV4 — не использовать; только
+subdomain или прямой порт.
 
 ## CDN / публичный бакет
 
 `S3_PUBLIC_URL=https://cdn.example.com` — save.handler отдаёт в ответах
 абсолютные URL мимо file-server. Бакет при этом должен быть читаемым анонимно
-(`mc anonymous set download local/$S3_BUCKET`) — это осознанный компромисс
-публичной раздачи; дефолт профиля — приватный бакет + presigned GET.
+(SeaweedFS: identity с Read для anonymous / MinIO: `mc anonymous set download`)
+— осознанный компромисс публичной раздачи; дефолт профиля — приватный бакет +
+presigned GET.
 
 ## Ограничения presigned PUT (известные, задокументированы)
 
@@ -78,36 +97,52 @@ path SigV4 — не использовать; только subdomain или пр
 - Presigned POST policy (`content-length-range`) AWS SDK v3 не поддерживает —
   ограничение размера на прямом пути только политикой бакета.
 
-## SeaweedFS вместо MinIO
+## Замена бэкенда (MinIO из частного registry / другой S3)
 
-Тот же S3-интерфейс, лицензия Apache 2.0 (MinIO — AGPLv3). В
-`docker-compose.s3.yml` заменить сервис `minio`:
+Сервис `s3` в `docker-compose.s3.yml` — единственная точка замены. Для MinIO:
 
 ```yaml
-  minio:
-    image: chrislusf/seaweedfs:3.80
-    command: server -dir=/data -s3 -s3.port=9000
-    # env/порты/volumes — аналогично; S3-ключи задаются его ways или IAM
+  s3:
+    image: <registry>/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
 ```
 
-file-server и bucket-init не меняются (обычный S3 + force-path-style).
+`bucket-init` (amazon/aws-cli) и file-server не меняются. Пинуйте конкретный
+тег: у MinIO `latest` больше не существует на публичных registry.
 
 ## Миграция local → s3
 
 `node file-server/scripts/migrate-to-s3.mjs` (dry-run по умолчанию, `--apply`,
 `--delete-local`) переносит содержимое `uploads_data` в бакет с теми же
 ключами — object key совпадает с путём в `/uploads`, URL в БД не ломаются.
-Порядок: миграция → переключение `FILE_STORAGE=s3` → rolling restart. Детали:
-`node scripts/migrate-to-s3.mjs --help`.
+Идемпотентен (существующие объекты пропускаются) — прерванный запуск
+повторяется. Порядок: миграция `--apply` → переключение `FILE_STORAGE=s3` →
+rolling restart; `--delete-local` только после проверки download'ов. Скрипт —
+host-side утилита; для volume-стендов удобнее запускать в контейнере с
+маунтами volume и исходников:
+
+```bash
+docker run --rm --network gateway-server_backend \
+  -v gateway-server_uploads_data:/data:ro \
+  -v <repo>/file-server:/app:ro -w /app \
+  -e UPLOADS_PATH=/data -e S3_BUCKET=… -e S3_ENDPOINT=http://s3:9000 \
+  -e S3_FORCE_PATH_STYLE=true -e S3_ACCESS_KEY_ID=… -e S3_SECRET_ACCESS_KEY=… \
+  node:22-alpine node scripts/migrate-to-s3.mjs --apply
+```
 
 ## HA и эксплуатация
 
 - file-server ×2: работает из коробки — состояние в бакете и БД, реплики
-  stateless. MinIO — single-node в профиле; для SLA — distributed MinIO
-  (4+ узла, erasure coding) или managed S3.
-- Бэкап: `mc mirror` бакета + существующий `backup.sh` для БД. Uploads больше
-  не в `uploads_data` — исключите volume из старых бэкап-скриптов.
-- Ротация S3-ключей: новые ключи в `.env` → `docker compose ... up -d minio
-  file-server` (MinIO валидирует старые сессии; file-server перечитает env).
-- `GET /health/storage` — проба хранилища (HeadBucket); boot-check пишет
-  недоступный бакет в лог ошибкой, не креша.
+  stateless. SeaweedFS в профиле — single-node; для SLA — cluster mode
+  (master+volume+filer на нескольких узлах) или managed S3.
+- Бэкап: `aws s3 sync s3://files …` (aws-cli) + существующий `backup.sh` для
+  БД. Uploads больше не в `uploads_data` — исключите volume из старых
+  бэкап-скриптов.
+- Ротация S3-ключей: новые ключи в `.env` → `docker compose ... up -d s3
+  file-server` (file-server перечитает env; у SeaweedFS ключи — это
+  s3.config, пересоздаётся при старте контейнера).
+- `GET /health/storage` — проба хранилища (S3: HeadBucket); boot-check пишет
+  недоступный бакет в лог ошибкой, не крешит.
