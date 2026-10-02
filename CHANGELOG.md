@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **`e2e-cases.mjs`** — 56-check E2E over the live stack (stage-3 use cases beyond auth):
+  posts CRUD under Access rules (public/owner/editor/admin: scope isolation 404s,
+  filter-wins-over-where for anonymous, secretNotes field rules — request stripping and
+  editor-only persistence), file lifecycle (JWT-gated upload, download round-trip,
+  exists/replace via `?options=`, traversal sanitization), and the subscription lifecycle
+  on the event bus (HMAC delivery `x-event-signature: sha256=<hex>(<ts>.<body>)`,
+  freshness/anti-replay window, contract validation 400, pattern filtering, secret
+  rotation, unsubscribe). The bus receiver runs as a throwaway container on the compose
+  network (production topology; a host-process receiver is blocked by Windows Firewall).
+  `SECTION=A|B|C` env runs a single section for fast iteration.
+
+### Changed
+- nginx: `limit_req_status 429` (was nginx's default 503 — throttled is not "broken",
+  and 429 lets clients apply retry-after semantics).
+
+
 ## [0.6.1] - 2026-10-01
 
 ### Security (Wave 6 audit)
