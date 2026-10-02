@@ -1,6 +1,7 @@
 # Load Test Results
 
-**Date:** 2026-09-30
+**Date:** 2026-09-30 (re-baselined 2026-10-02, Wave 6 stage 4 — see the
+section at the end)
 **Runner:** `./load-tests/run-load.sh` (k6 in Docker, single dev machine)
 **Stack:** full compose (nginx → auth/api/event/message → pgbouncer → postgres),
 per-service cpu limits as in docker-compose.yml (auth 1.0, api 1.0, event 1.0,
@@ -162,3 +163,91 @@ logging and the Access-model fixes; the auth rows were measurement artifacts
 (redirects to nonexistent frontend URLs). Superseded by this run; the
 api query-matrix scripts remain usable but their `viewCount` ordering was
 updated to `createdAt` (the column no longer exists).
+
+## Wave 6 stage 4 — re-baseline, three production fixes, chaos (2026-10-02)
+
+Audited load pass: re-ran every scenario on the current stack, chased every
+anomaly to root cause. Three production fixes came out of it (auth-server
+be8b0bd, gateway-server 612e9b1, event-server 81b4d7f), each verified by a
+regression suite and a full re-run of the affected baselines.
+
+### Baselines after the fixes (vs 2026-09-30)
+
+| Scenario | Was | Now | Δ | Note |
+|----------|-----|-----|---|------|
+| storm10 (cost 10, 20 VU) | 15.0/s | **17.8/s** | +19% | native bcrypt (`@node-rs/bcrypt`) + `UV_THREADPOOL_SIZE=16` |
+| storm10 max latency | — | 6.9 s | was 53 s in the broken middle state | threadpool no longer shared with DNS resolver |
+| storm12 (cost 12, 20 VU) | 4.1/s | **4.9/s** | +20% | same two fixes |
+| fullpath | 12.9/s | 13.4/s | +4% | |
+| webhook → mail | 91.6/s ingest | **95.4/s** | +4% | |
+| files local / s3 | 50.5 / 51.0 | 52.4 / 51.6 | ~noise | s3 = SeaweedFS |
+| read-heavy through nginx | 392/s | 365.7/s | −7% | machine variance; p95 30 vs 13 ms — dev box was busier |
+
+### The findings behind the fixes
+
+1. **bcryptjs blocked the event loop** (auth-server): a pure-JS cost-10 hash
+   runs ~55 ms **on the event loop**; under a 20-VU storm every concurrent
+   request queues behind it. Native `@node-rs/bcrypt` (Rust, prebuilt
+   binaries — survives `npm install --ignore-scripts`) moves hashing to the
+   libuv threadpool. Cost stays 10 (constraint); legacy `$2a$` hashes verify
+   natively, no migration. Pinned by `hash.account.handler.spec.ts`
+   (4 parallel hashes + 5 ms event-loop sampler, maxLag < 100 ms).
+2. **libuv threadpool starvation**: native bcrypt shares the 4 default
+   threadpool slots with getaddrinfo; storm tail was 53 s. `UV_THREADPOOL_SIZE=16`
+   on auth-server → tail 6.9 s, ceiling 15.0 → 17.8/s.
+3. **pgbouncer `QUERY_TIMEOUT=10` killed connections**: queueing under load
+   routinely exceeds 10 s query age (storm p99 ≈ 12 s) → pgbouncer tears down
+   client+server connections → random 500s everywhere
+   (`QueryRunnerAlreadyReleasedError` — any later query on the released
+   runner throws). Now `QUERY_TIMEOUT=0`; runaway queries are postgres
+   `statement_timeout`'s job (clean error, no socket break).
+4. **Event-bus starvation (High, event-server 81b4d7f)**: no-subscriber events
+   (`audit.event` fires on every request) re-pended **forever** (+60 s, the
+   late-subscriber race protection); past ~3.5 k dead rows the oldest-50
+   claim query saturated the worker and fresh `user.registered` events
+   starved — mail silently stopped mid-e2e. Fix: `EVENT_NO_SUBSCRIBER_TTL_MS`
+   (default 300 s) bounds the re-pend, then the event finalizes without
+   deliveries. Live verification: 7.6 k backlog shed in ~90 s, queue empty,
+   e2e-auth back to 43/43.
+
+### Presigned big files (`presign-bigfile.mjs`, s3 stack)
+
+Client-built urandom payload hashed **from disk**; PUT etag checked against
+payload md5 (MinIO single-part etag IS the md5) to localize a corrupt leg;
+any mismatch exits non-zero.
+
+| Size | PUT | GET | sha256 round-trip |
+|------|-----|-----|-------------------|
+| 100 MB | — | 140 MB/s | matches |
+| 250 MB | 67 MB/s | 164 MB/s | matches |
+
+(The first 250 MB run printed a sha256 mismatch — a **harness bug**: ignored
+`fs.writeSync` partial writes shifted the file content on Windows while the
+size stayed correct. Per-leg integrity checks pinpointed it; not a stack bug.)
+
+### Chaos
+
+- **auth replica killed mid-storm** (auth ×2, `THROTTLE_STORAGE=redis`,
+  20 VU cost-12 storm, SIGKILL at t=55 s of 150 s): 19/981 requests failed
+  (1.93%), all inside a ~40 s window — 9 in-flight EOFs at the kill instant
+  plus ~10 dials while k6's cached DNS still pointed at the dead IP. The
+  survivor carried 100% of the load; throughput rose to ~7/s (the two
+  replicas had been sharing one CPU). Recovery: `docker start` → healthy →
+  rebalanced. Note: `docker kill` bypasses restart policies even with
+  `unless-stopped` (verified with a throwaway container) — replica restart
+  is orchestrator territory, `docker compose` restart is not a substitute.
+- **event-server killed mid-publish-burst** (30-event burst, SIGKILL mid-run):
+  every accepted event was delivered (29/29 delivery rows 200, subscriber
+  confirmed receipt) across the restart; 2 publishes during the downtime were
+  rejected at the publisher — the documented at-least-once-**after-acceptance**
+  semantics (publish retry is the publisher's job). No stuck `processing`
+  rows; the stale-reclaim path (pending + processing older than
+  `WORKER_STALE_TIMEOUT_MS`) was exercised live for the first time.
+
+### Where the numbers come from
+
+Artifacts in `load-tests/out/`: `storm10-fixed.txt`, `storm12.txt`
+(single-replica saturated re-run), `chaos-kill.txt/.json`,
+`chaos-storm12-kill.log` (contains the earlier accidental single-replica
+storm: 0.18% fail at 97% CPU — the pre-fix crash signature is gone),
+`files-s3-recheck.txt`, `presign-bigfile` runs inline.
