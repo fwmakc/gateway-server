@@ -17,6 +17,24 @@
 ### Changed
 - nginx: `limit_req_status 429` (was nginx's default 503 — throttled is not "broken",
   and 429 lets clients apply retry-after semantics).
+- **pgbouncer `QUERY_TIMEOUT=0`** (was 10 s, shipped with the wave-1 hardening batch).
+  Under load the pooler killed client connections whose query age crossed 10 s —
+  exactly what request queueing produces (cost-12 storm p99 ≈ 12 s) — and each kill
+  surfaced in the app as a random 500 (`QueryRunnerAlreadyReleasedError`, pg client
+  `error` → released TypeORM runner; verified against pgbouncer's own log:
+  `pooler error: query timeout` at the exact error second). Runaway-query control
+  belongs in postgres `statement_timeout`, which fails the query cleanly instead of
+  ripping the socket. Load proof after the fix: cost-12 storm 0/413 failed, 0 kills.
+- auth-server: `UV_THREADPOOL_SIZE=16` — native bcrypt now shares the default
+  4 libuv threadpool slots with DNS lookups; at 20 VU the bcrypt queue made a
+  53 s request tail (p95 stayed 4.3 s). With 16 slots the tail collapses to 7 s
+  and cost-10 throughput rises to 17.8 logins/s (baseline 15.0).
+
+### Added
+- **`load-tests/presign-bigfile.mjs`** — the deferred 100 MB+ presigned scenario:
+  login → `POST /files/presign/upload` → random-payload PUT straight to the bucket
+  (no file-server, no nginx in the path) → presigned GET → sha256 round-trip
+  check. Requires the s3 compose profile.
 
 
 ## [0.6.1] - 2026-10-01

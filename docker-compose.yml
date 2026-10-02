@@ -63,6 +63,10 @@ services:
       - NODE_ENV=production
       - LOG_FORMAT=json
       - SERVICE_NAME=auth-server
+      # native bcrypt runs on the libuv threadpool (default 4 slots shared
+      # with DNS lookups): with 20+ concurrent logins the bcrypt queue made
+      # a 53 s request tail — widen the pool so DNS never queues behind hashes
+      - UV_THREADPOOL_SIZE=16
       - IP=0.0.0.0
       - PORT=3001
       - DB_TYPE=postgres
@@ -352,7 +356,13 @@ services:
       - MIN_POOL_SIZE=5
       - RESERVE_POOL_SIZE=5
       - RESERVE_POOL_TIMEOUT=3
-      - QUERY_TIMEOUT=10
+      # 0 = disabled. The old QUERY_TIMEOUT=10 made pgbouncer kill client
+      # connections mid-request once total query age crossed 10 s — exactly
+      # what load spikes produce (storm p99 ≈ 12 s) — surfacing as random
+      # 500s (TypeORM QueryRunnerAlreadyReleasedError) in every service.
+      # Runaway-query control belongs in postgres statement_timeout, which
+      # fails the query cleanly instead of ripping the socket.
+      - QUERY_TIMEOUT=0
       - SERVER_RESET_QUERY=DISCARD ALL
     depends_on:
       postgres:
