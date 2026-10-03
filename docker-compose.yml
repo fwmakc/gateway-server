@@ -381,6 +381,17 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    # Runaway-query guard — the replacement for the pgbouncer QUERY_TIMEOUT
+    # that was removed (see the pgbouncer comment): a single statement running
+    # >60s is a bug (storm p99 is ~12s of queueing, real statements are ms),
+    # and an abandoned open transaction must not hold locks forever. Both are
+    # generous enough for boot migrations on production-size tables.
+    command:
+      - postgres
+      - -c
+      - statement_timeout=60000
+      - -c
+      - idle_in_transaction_session_timeout=60000
     environment:
       POSTGRES_USER: ${DB_USER:-root}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}

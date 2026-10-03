@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+- **postgres: `statement_timeout=60s` + `idle_in_transaction_session_timeout=60s`.**
+  The replacement for the pgbouncer `QUERY_TIMEOUT` removed earlier — the
+  compose comment promised a statement timeout on postgres, but nothing
+  actually set it, so runaway-query protection was absent. A single statement
+  running >60s is a bug (login-storm p99 is ~12s of queueing; real statements
+  are ms), and an abandoned open transaction must not hold locks forever.
+  Both are generous enough for boot migrations on production-size tables.
+  Verified `SHOW statement_timeout` after a clean `pg_data` boot (migrations
+  unaffected) and a storm10 re-run at parity with the baseline (17.7/s vs
+  17.8/s, zero errors).
+
 ### Added
 - **`e2e-cases.mjs`** — 56-check E2E over the live stack (stage-3 use cases beyond auth):
   posts CRUD under Access rules (public/owner/editor/admin: scope isolation 404s,
