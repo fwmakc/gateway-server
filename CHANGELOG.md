@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Changed
+- **api-server receives `WEBHOOK_SECRET` from `.env`** — the accounts-mirror
+  webhook receiver (`POST api-server:5000/webhooks/events`, added in
+  api-server 0.8.0) now rides the same signed-delivery channel as
+  message-server: the value is passed to both event-server (signs) and
+  api-server (verifies). Empty = legacy internal-key transport, unchanged
+  defaults.
+
+### Changed
 - **postgres: `statement_timeout=60s` + `idle_in_transaction_session_timeout=60s`.**
   The replacement for the pgbouncer `QUERY_TIMEOUT` removed earlier — the
   compose comment promised a statement timeout on postgres, but nothing

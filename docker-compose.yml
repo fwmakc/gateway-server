@@ -221,6 +221,9 @@ services:
       # Rotation window: old key stays valid until every caller is switched (docs/secret-rotation.md)
       - INTERNAL_API_KEY_PREVIOUS=${INTERNAL_API_KEY_PREVIOUS:-}
       - EVENT_SERVER_URL=http://event-server:3005
+      # Accounts mirror: webhook receiver /webhooks/events. Same secret value
+      # as event-server's — enables HMAC-signed delivery (like message-server).
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
     depends_on:
       pgbouncer:
         condition: service_healthy
