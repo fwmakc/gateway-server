@@ -255,10 +255,24 @@ services:
       - JWT_AUDIENCE=${JWT_AUDIENCE:-}
       - UPLOADS_PATH=/app/public/uploads
       - UPLOADS_URL=/uploads
+      # ACL rules (file ownership/sharing) live in file-server's own DB
+      - DB_TYPE=postgres
+      - DB_HOST=pgbouncer
+      - DB_PORT=5432
+      - DB_NAME=file_server
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # user.deleted subscription: purge ACL grants of deleted accounts
+      - EVENT_SERVER_URL=http://event-server:3005
+      - WEBHOOK_URL=http://file-server:3002/webhooks/events
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
     volumes:
       - uploads_data:/app/public/uploads
     depends_on:
       auth-server:
+        condition: service_healthy
+      event-server:
         condition: service_healthy
     networks:
       - frontend

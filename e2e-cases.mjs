@@ -227,9 +227,17 @@ const STAMP = Date.now();
   check("upload → url", !!first?.json?.[0]?.url, `status=${first.status} ${JSON.stringify(first.json?.[0]) ?? first.text.slice(0, 80)}`);
   const url = first?.json?.[0]?.url;
   const abs = url?.startsWith("http") ? url : BASE + url;
+  const key = (url || "").split("/uploads/")[1] || "";
+  const ownerHeaders = { Authorization: `Bearer ${tokens.owner}` };
+
+  // private by default: anonymous and strangers are 404-masked, owner reads
   await pace();
-  const dl = await fetch(abs);
-  check("download round-trip (bytes)", (await dl.text()) === "hello files", `status=${dl.status}`);
+  const dlAnon = await fetch(abs);
+  check("anon download of private file → 404", dlAnon.status === 404, `status=${dlAnon.status}`);
+  const dlStranger = await fetch(abs, { headers: { Authorization: `Bearer ${tokens.owner2}` } });
+  check("stranger download of private file → 404", dlStranger.status === 404, `status=${dlStranger.status}`);
+  const dl = await fetch(abs, { headers: ownerHeaders });
+  check("owner download round-trip (bytes)", (await dl.text()) === "hello files", `status=${dl.status}`);
 
   await pace();
   const dup = await up(`e2e-case-${STAMP}.txt`, Buffer.from("again"));
@@ -239,8 +247,16 @@ const STAMP = Date.now();
   const rep = await up(`e2e-case-${STAMP}.txt`, Buffer.from("replaced body"), { replace: true });
   check("upload with replace → ok", !rep?.json?.[0]?.error && !!rep?.json?.[0]?.url, `status=${rep.status} ${JSON.stringify(rep.json?.[0]) ?? rep.text.slice(0, 80)}`);
   await pace();
-  const dl2 = await fetch(abs);
+  const dl2 = await fetch(abs, { headers: ownerHeaders });
   check("replace persisted", (await dl2.text()) === "replaced body");
+
+  // ACL: making the file public opens it to anonymous readers
+  await pace();
+  const pubRule = await api("POST", "/files/acl", { token: tokens.owner, body: { path: key, pathType: "file", visibility: "public" } });
+  check("owner publishes own file → 2xx", pubRule.status < 300, `status=${pubRule.status} body=${JSON.stringify(pubRule.json)}`);
+  await pace();
+  const dlPub = await fetch(abs);
+  check("anon download of public file → 200 with bytes", dlPub.status === 200 && (await dlPub.text()) === "replaced body", `status=${dlPub.status}`);
 
   await pace();
   const trav = await up(`../../etc/evil-${STAMP}.txt`, Buffer.from("evil"));

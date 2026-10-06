@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Changed
+- **file-server became stateful (file-server 0.8.0 ACL wave)**: compose
+  passes `DB_*` (Postgres `file_server` — added to `init-databases.sh`
+  with its test DB), `EVENT_SERVER_URL`, `WEBHOOK_URL`/`WEBHOOK_SECRET`
+  and now depends on event-server health — the service owns file
+  authorization (ACL rules + grants + webhook ledger) instead of serving
+  anonymous static bytes. Upload keys move under `<accountId>/…`; links
+  to private legacy keys stop resolving for non-staff.
+
+### Changed
 - **api-server receives `WEBHOOK_SECRET` from `.env`** — the accounts-mirror
   webhook receiver (`POST api-server:5000/webhooks/events`, added in
   api-server 0.8.0) now rides the same signed-delivery channel as
