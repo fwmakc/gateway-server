@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- **file-server lost its `backend` network** — the 0.8.0 ACL wave made it
+  query Postgres through pgbouncer but left the service attached to
+  `frontend` only, so Docker DNS never resolved `pgbouncer` and the boot
+  retried forever (surfaced by the first live full-stack run; compose
+  `config` validation does not check network membership). Now on
+  `frontend` + `backend` with `depends_on: pgbouncer: service_healthy`.
+
 ### Changed
 - **file-server became stateful (file-server 0.8.0 ACL wave)**: compose
   passes `DB_*` (Postgres `file_server` — added to `init-databases.sh`

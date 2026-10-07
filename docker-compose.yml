@@ -274,8 +274,11 @@ services:
         condition: service_healthy
       event-server:
         condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
     networks:
       - frontend
+      - backend
     mem_limit: 1g
     cpus: 1.5
     restart: unless-stopped
