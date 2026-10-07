@@ -747,51 +747,30 @@ Tests use real PostgreSQL (not mocked) with `dropSchema: true` + `synchronize: t
 
 ## Versioning
 
-All services in the fwmakc stack share the same **major version**. Same major = guaranteed compatibility.
+Each service versions **independently** (semver): a `vX.Y.Z` git tag marks the released state of each repo. There is no stack-wide shared major — compatibility is guaranteed by **exact dependency pins**, not by version numbers.
 
-| Level | Scope | Example |
-|-------|-------|---------|
-| **Major** | Shared across ALL services. A breaking change in any service bumps the major for everyone. | toolkit 2.x → 3.0.0 ⟹ all services tag v3.0.0 |
-| **Minor** | Independent per service. New features (additive). | auth-server 2.1.0 → 2.2.0 |
-| **Patch** | Independent per service. Bug fixes. | event-server 2.0.0 → 2.0.1 |
+- Repos on `0.x` (toolkit, api/auth/file/message-server, gateway): the minor carries breaking changes while the stack is in development; patch = fixes.
+- `event-server` follows a `1.x` line (stable event-contract surface).
+- Consumers pin sources by tag: `"api-server-toolkit": "github:fwmakc/api-server-toolkit#v0.32.0"`, `"event-server": "github:fwmakc/event-server#v1.5.0"`.
 
-### What triggers a major bump
+### Breaking-change procedure
 
-A breaking change at any intersection point:
-
-- **api-server-toolkit** — guards, columns, decorators, EntityController, bootstrap, services
-- **event-server contracts** — DTO field removed/renamed, required field added
-- **Inter-service API** — JWT claim format, `X-Internal-Api-Key` scheme, webhook contract
-- **Public API** — any endpoint that another service depends on
-
-### What does NOT trigger a major bump
-
-- Bug fixes, performance improvements
-- New features (additive — new optional fields, new endpoints)
-- Internal refactoring that doesn't change interfaces
-
-### Alignment process
-
-When a service makes a breaking change (e.g., toolkit 2.x → 3.0.0):
-
-1. The changing service bumps its major and tags the release
-2. **All other services** get a stack alignment commit:
-   - Bump `version` in `package.json`
-   - Add CHANGELOG entry: `chore: stack v3 alignment`
-   - Update dependency pins if needed
-   - Tag `v3.0.0`
-3. All services are now on stack v3
+1. Bump the source repo (toolkit or event-server), tag the release, push.
+2. In each consumer: bump the pin in `package.json` (a dedicated `build: pin …` commit), run the tests, push.
+3. Update the `Current versions` table below in every repo so it keeps reflecting the actual tags.
 
 ### Current versions
 
+> Synced across all repos on 2026-10-07. Source of truth: the `v*` git tags at each repo HEAD.
+
 | Service | Version |
 |---------|---------|
-| [api-server-toolkit](https://github.com/fwmakc/api-server-toolkit) | v0.13.1 |
-| [event-server](https://github.com/fwmakc/event-server) | v0.5.0 |
-| [auth-server](https://github.com/fwmakc/auth-server) | v0.5.0 |
-| [message-server](https://github.com/fwmakc/message-server) | v0.4.0 |
-| [file-server](https://github.com/fwmakc/file-server) | v0.4.0 |
-| [chat-server](https://github.com/fwmakc/chat-server) | v0.1.0 |
-| [api-server](https://github.com/fwmakc/api-server) | v0.5.0 |
-| [gateway-server](https://github.com/fwmakc/gateway-server) | v0.4.0 |
-| [api-server-scaffold](https://github.com/fwmakc/api-server-scaffold) | v0.1.0 |
+| [api-server-toolkit](https://github.com/fwmakc/api-server-toolkit) | v0.32.0 |
+| [event-server](https://github.com/fwmakc/event-server) | v1.5.0 |
+| [auth-server](https://github.com/fwmakc/auth-server) | v0.13.0 |
+| [message-server](https://github.com/fwmakc/message-server) | v0.7.0 |
+| [file-server](https://github.com/fwmakc/file-server) | v0.8.0 |
+| [chat-server](https://github.com/fwmakc/chat-server) | v0.1.3 (frozen) |
+| [api-server](https://github.com/fwmakc/api-server) | v0.8.0 |
+| [gateway-server](https://github.com/fwmakc/gateway-server) | v0.6.0 (infra) |
+| [api-server-scaffold](https://github.com/fwmakc/api-server-scaffold) | v0.1.5 |
