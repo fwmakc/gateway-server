@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.0] - 2026-10-07
 
 ### Added
 - **Static downloads (`/uploads`) got their own rate zone and an edge
@@ -43,6 +43,13 @@
   scaled back to 1. The service name resolves once per network, so
   file-server (frontend + backend) needed a single-record metrics alias
   (`file-server-metrics`) to avoid being scraped twice.
+- **Per-replica webhook subscriptions (compose).** file-server's explicit
+  `WEBHOOK_URL=http://file-server:3002/...` removed from the compose env:
+  the service now defaults its webhook url to its own container hostname,
+  so every `--scale` replica registers a separate subscriber with
+  event-server and receives deliveries (auth-cache invalidation, ACL
+  purge) individually. message-server keeps its explicit url (frozen,
+  never scaled). Requires file-server 0.8.3+ / api-server 0.9.0+.
 - **file-server became stateful (file-server 0.8.0 ACL wave)**: compose
   passes `DB_*` (Postgres `file_server` — added to `init-databases.sh`
   with its test DB), `EVENT_SERVER_URL`, `WEBHOOK_URL`/`WEBHOOK_SECRET`
