@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+- **Static downloads (`/uploads`) got their own rate zone and an edge
+  cache.** The combined `/files|/uploads` location is split: the file API
+  keeps the 10 r/s `api_limit`, while `/uploads` runs on a dedicated
+  `uploads_limit` (50 r/s, burst 100 per IP) and an nginx `proxy_cache`
+  (500 MB disk, URL-keyed). Cacheability is decided by file-server's ACL
+  headers: public keys cache for `PUBLIC_CACHE_TTL`, private `no-store`
+  responses are never stored, and only 200s are cached (404s don't stick,
+  fresh uploads visible immediately). Responses carry `X-Cache-Status`.
+  Measured on the live stack: 30 r/s per IP went from 64.5% 429 to 0% at
+  ~1 ms median; an 11k r/s flood left file-server at 0.44% CPU.
+- **load-tests: `static.js` benchmark + `seed-static-bench.mjs` seeder**
+  (public `site-assets` folder + payload files on the live stack); results
+  in `load-tests/results.md`.
+
 ### Fixed
 - **file-server lost its `backend` network** — the 0.8.0 ACL wave made it
   query Postgres through pgbouncer but left the service attached to

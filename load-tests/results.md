@@ -251,3 +251,59 @@ Artifacts in `load-tests/out/`: `storm10-fixed.txt`, `storm12.txt`
 `chaos-storm12-kill.log` (contains the earlier accidental single-replica
 storm: 0.18% fail at 97% CPU — the pre-fix crash signature is gone),
 `files-s3-recheck.txt`, `presign-bigfile` runs inline.
+
+## Static assets (/uploads): per-IP limiter + edge cache (2026-10-07)
+
+Live stack, single-file k6 (`static.js`): one k6 container = one source IP =
+one per-IP rate-limit bucket. Payloads: icon.png 1.5 KB, article.png 200 KB,
+big.jpg 1 MB, uploaded into the public `site-assets/` folder (anonymous GET,
+`Cache-Control: public, max-age=300` from file-server ACL). Seeder:
+`seed-static-bench.mjs` (throwaway admin, same account pattern as e2e-cases).
+
+**Before** — one shared `api_limit` zone (10 r/s, burst 20) covered both the
+`/files` API and `/uploads` downloads:
+
+| Run | Result |
+|-----|--------|
+| 30 r/s on article.png | **64.5% 429** (581/901) — a page with ~30 images visibly breaks |
+| 50 VU flood on icon.png | 99.9% 429 — the ceiling is unmeasurable behind the limiter |
+
+**After** — own `uploads_limit` zone (50 r/s, burst 100) + nginx `proxy_cache`
+respecting file-server's ACL headers:
+
+| Run | Result |
+|-----|--------|
+| 30 r/s on article.png | **0% 429**, med **1.05 ms** (first request MISS, rest HIT) |
+| 45 r/s on article.png | 0% 429, med 1.0 ms, **9.3 MB/s** sustained from a single IP |
+| 50 VU flood on icon.png (~11.4k r/s attempted) | serves 50 r/s + burst as designed; **file-server CPU 0.44%** — the flood never reached the backend; nginx spent ~half a core on rejections |
+| cold big.jpg (1 MB) | 11.7 ms MISS (nginx → file-server → ACL → disk → cache fill) |
+| warm big.jpg | 5.7 ms HIT (served from nginx cache) |
+
+Correctness checks (curl, live): first GET `X-Cache-Status: MISS` → second
+`HIT`; 404s are never cached (`proxy_cache_valid 200` only) — verified two
+consecutive MISSes on a missing key; private files answer `private, no-store`
+(unit-tested) and are never stored; `/files` API keeps the 10 r/s zone
+(anonymous upload → 401 as before).
+
+Implementation notes for reproducers:
+
+- `limit_req` is evaluated **before** the cache lookup: even cache hits spend
+  the per-IP budget. The zone caps an abusive client, not real users — the
+  backend cost of a hit is ~zero.
+- `proxy_buffering on` is mandatory in the `/uploads` location: `proxy.conf`
+  turns buffering off globally, and nginx does not write unbuffered
+  responses to cache at all.
+- `add_header` in a location cancels inheritance of server-level headers —
+  the security/CORS set is repeated explicitly inside the location.
+- Cache key is the plain URL. TTL follows the upstream `Cache-Control`
+  (file-server `PUBLIC_CACHE_TTL`, default 300 s); `proxy_cache_valid 200 10m`
+  is only a fallback for responses that carry no Cache-Control.
+
+Reproduce:
+
+```bash
+node load-tests/seed-static-bench.mjs          # one-time: public folder + payloads
+docker run --rm --network gateway-server_frontend -v "$PWD/load-tests:/scripts" \
+  grafana/k6 run /scripts/static.js \
+  -e TARGET_URL=http://nginx/uploads/site-assets/article.png -e RATE=30 -e DURATION=30s
+```

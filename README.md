@@ -269,16 +269,44 @@ Installed as `github:fwmakc/api-server-toolkit#v0.13.1`. In the monorepo Docker 
 
 ## Nginx Routing
 
-| Path | Service |
-|------|---------|
-| `/account`, `/token`, `/auth`, `/.well-known` | auth-server |
-| `/swagger`, `/redoc` | auth-server |
-| `/files`, `/uploads` | file-server |
-| `/mail` | message-server |
-| `/socket.io/` | chat-server (WebSocket upgrade) |
-| Everything else (`/`) | api-server |
+| Path | Service | Notes |
+|------|---------|-------|
+| `/account`, `/token`, `/auth`, `/.well-known` | auth-server | |
+| `/swagger`, `/redoc` | auth-server | |
+| `/files` | file-server | upload/ACL/delete API |
+| `/uploads` | file-server | downloads — edge-cached, see below |
+| `/mail` | message-server | |
+| `/socket.io/` | chat-server (WebSocket upgrade) | |
+| Everything else (`/`) | api-server | |
 
-Rate limiting: auth endpoints 5 req/s, API endpoints 10 req/s.
+Rate limiting (per IP): auth endpoints 5 req/s, `/files` and general API
+10 req/s, `/uploads` 50 req/s (burst 100).
+
+### Static downloads: rate zone + edge cache (/uploads)
+
+Downloads get their own generous rate zone and an nginx `proxy_cache`
+(`/var/cache/nginx/uploads`, 500 MB on disk, keys in RAM). **file-server
+decides cacheability per key** via its ACL and sets the headers itself —
+the gateway just obeys them:
+
+- public key → `Cache-Control: public, max-age=PUBLIC_CACHE_TTL` → cached at
+  the edge; repeat views never touch file-server;
+- private key → `Cache-Control: private, no-store` → never stored;
+- only 200 responses are cached, so 404s (masked private files) never stick
+  and a freshly uploaded key is visible immediately.
+
+Every `/uploads` response carries `X-Cache-Status: MISS|HIT` for ops checks.
+Note that `limit_req` runs before the cache lookup: even hits spend the
+per-IP budget (anti-flood), but a hit is served nginx-locally (~1 ms median).
+
+Measured on the live stack (k6, one source IP; details in
+`load-tests/results.md`): 30 r/s on a 200 KB asset went from **64.5% 429**
+(shared 10 r/s zone) to **0% 429** at ~1 ms median; under an 11k r/s flood
+file-server stayed at **0.44% CPU**. Cache TTL is owned by file-server
+(`PUBLIC_CACHE_TTL`, default 300 s); `proxy_cache_valid 200 10m` is only a
+fallback for responses without `Cache-Control`. Purge manually:
+`docker compose exec nginx sh -c 'rm -rf /var/cache/nginx/uploads/*'`.
+Benchmark: `load-tests/static.js` (+ `seed-static-bench.mjs` seeder).
 
 ## Horizontal Scaling
 
