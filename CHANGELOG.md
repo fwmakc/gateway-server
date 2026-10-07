@@ -16,6 +16,15 @@
 - **load-tests: `static.js` benchmark + `seed-static-bench.mjs` seeder**
   (public `site-assets` folder + payload files on the live stack); results
   in `load-tests/results.md`.
+- **S3 profile: public-bucket mode is now a single env switch.**
+  `S3_PUBLIC_BUCKET=true` adds a credential-less `anonymous` identity with
+  `Read:<bucket>` to the generated SeaweedFS `s3.json` (the compose gate
+  replaces hand-editing bucket config); `S3_PUBLIC_URL` then makes
+  file-server return direct CDN-base URLs — but only for keys a public ACL
+  rule already covers (file-server 0.8.1+). Verified live: public key →
+  direct GET off-stack 200, private key → `/uploads` proxy (anon 404),
+  presigned PUT/GET work, and `--scale file-server=2` serves downloads from
+  both replicas of the shared bucket. See `docs/s3-storage.md`.
 
 ### Fixed
 - **file-server lost its `backend` network** — the 0.8.0 ACL wave made it

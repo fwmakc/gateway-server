@@ -23,11 +23,19 @@ services:
     image: chrislusf/seaweedfs:3.80
     # S3 auth comes from a generated config (no config = anonymous S3 API):
     # one admin identity built from the same credentials file-server uses.
+    # S3_PUBLIC_BUCKET=true adds a credential-less "anonymous" identity with
+    # Read scoped to the bucket — the opt-in public-bucket mode required by
+    # S3_PUBLIC_URL static/CDN serving (docs/s3-storage.md). Default: no
+    # anonymous identity, the bucket is fully private.
     entrypoint:
       - /bin/sh
       - -ec
       - |
         mkdir -p /data/s3cfg
+        ANON=""
+        if [ "$${S3_PUBLIC_BUCKET:-false}" = "true" ]; then
+          ANON=$$(printf ',{"name":"anonymous","actions":["Read:%s"]}' "$${S3_BUCKET}")
+        fi
         cat > /data/s3cfg/s3.json <<EOF
         {
           "identities": [
@@ -38,6 +46,7 @@ services:
               ],
               "actions": ["Admin", "Read", "Write", "List"]
             }
+            $${ANON}
           ]
         }
         EOF
@@ -46,6 +55,8 @@ services:
     environment:
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      - S3_PUBLIC_BUCKET=${S3_PUBLIC_BUCKET:-false}
+      - S3_BUCKET=${S3_BUCKET:?set S3_BUCKET in .env}
     ports:
       # dev-only: client → bucket presigned traffic (127.0.0.1 = not exposed
       # to the network). In prod drop this port and use the edge subdomain.
@@ -105,7 +116,8 @@ services:
       - S3_PRESIGN_ENDPOINT=${S3_PRESIGN_ENDPOINT:-http://127.0.0.1:9000}
       - S3_PRESIGN_EXPIRES_SEC=${S3_PRESIGN_EXPIRES_SEC:-900}
       # S3_PUBLIC_URL: set only for a public-bucket/CDN setup (returned URLs
-      # point there instead of the download proxy)
+      # point there instead of the download proxy) — pair with
+      # S3_PUBLIC_BUCKET=true above, see docs/s3-storage.md
       - S3_PUBLIC_URL=${S3_PUBLIC_URL:-}
       - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-50}
     volumes: []

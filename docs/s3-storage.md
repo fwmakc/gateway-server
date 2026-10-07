@@ -83,11 +83,24 @@ subdomain или прямой порт.
 
 ## CDN / публичный бакет
 
-`S3_PUBLIC_URL=https://cdn.example.com` — save.handler отдаёт в ответах
-абсолютные URL мимо file-server. Бакет при этом должен быть читаемым анонимно
-(SeaweedFS: identity с Read для anonymous / MinIO: `mc anonymous set download`)
-— осознанный компромисс публичной раздачи; дефолт профиля — приватный бакет +
-presigned GET.
+Два переключателя (opt-in, дефолт — приватный бакет + presigned GET):
+
+- `S3_PUBLIC_BUCKET=true` — композ добавляет в генерируемый `s3.json`
+  credential-less identity `anonymous` с `Read:<bucket>` (SeaweedFS-нативный
+  способ анонимного чтения). Для MinIO — `mc anonymous set download`.
+- `S3_PUBLIC_URL=https://cdn.example.com` (dev: `http://127.0.0.1:9000/<bucket>`)
+  — save.handler отдаёт для **публичных по ACL-правилам** ключей абсолютные URL
+  на эту базу, мимо file-server. Приватные ключи продолжают ходить через
+  прокси `/uploads` (since file-server 0.8.1, пинено тестами: CDN-ссылка без
+  публичного правила не выдаётся).
+
+Осознанный компромисс: анонимное чтение бакета — это «правда о публичности»
+на уровне бакета, а ACL-правила file-server остаются источником для URL в API.
+Верификация волны 13 (живой стенд): публичная папка → URL на S3_PUBLIC_URL,
+прямой GET мимо стека 200; приватный ключ → `/uploads/...`, аноним 404,
+bearer 200; presigned PUT/GET работают; `--scale file-server=2` — upload через
+одну реплику, скачивание round-robin с обеих (общий бакет снимает
+однорепличность local-режима).
 
 ## Ограничения presigned PUT (известные, задокументированы)
 
