@@ -1,5 +1,9 @@
 # Prometheus scrape configuration.
-# Targets are compose service DNS names on the internal docker networks.
+# Service targets resolve via Docker DNS (dns_sd_configs, A records): each
+# replica of a scaled service (`docker compose up --scale api-server=2`)
+# becomes its own target automatically — static DNS names would scrape one
+# replica of N. The resolved container IP is the default `instance` label;
+# the service name is relabeled into `service` for dashboards.
 # /metrics is not authenticated and is NOT proxied by nginx — it is only
 # reachable from inside the compose networks.
 global:
@@ -11,22 +15,23 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: auth-server
-    static_configs:
-      - targets: ['auth-server:3001']
-
-  - job_name: api-server
-    static_configs:
-      - targets: ['api-server:5000']
-
-  - job_name: event-server
-    static_configs:
-      - targets: ['event-server:3005']
-
-  - job_name: message-server
-    static_configs:
-      - targets: ['message-server:3003']
-
-  - job_name: file-server
-    static_configs:
-      - targets: ['file-server:3002']
+  - job_name: api-services
+    dns_sd_configs:
+      - names: ['auth-server']
+        type: A
+        port: 3001
+      - names: ['api-server']
+        type: A
+        port: 5000
+      - names: ['event-server']
+        type: A
+        port: 3005
+      - names: ['message-server']
+        type: A
+        port: 3003
+      - names: ['file-server-metrics']
+        type: A
+        port: 3002
+    relabel_configs:
+      - source_labels: [__meta_dns_name]
+        target_label: service

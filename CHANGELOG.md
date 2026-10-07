@@ -35,6 +35,14 @@
   `frontend` + `backend` with `depends_on: pgbouncer: service_healthy`.
 
 ### Changed
+- **Prometheus scrapes every replica, not just one.** Static DNS targets
+  (`auth-server:3001`, …) resolve to a single IP, so a scaled service was
+  scraped 1-of-N. Now `dns_sd_configs` (A records, per-service port) turn
+  each replica into its own target, with the service name relabeled into
+  `service`. Verified live: `--scale api-server=2` → both targets `up`;
+  scaled back to 1. The service name resolves once per network, so
+  file-server (frontend + backend) needed a single-record metrics alias
+  (`file-server-metrics`) to avoid being scraped twice.
 - **file-server became stateful (file-server 0.8.0 ACL wave)**: compose
   passes `DB_*` (Postgres `file_server` — added to `init-databases.sh`
   with its test DB), `EVENT_SERVER_URL`, `WEBHOOK_URL`/`WEBHOOK_SECRET`

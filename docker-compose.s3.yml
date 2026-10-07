@@ -125,8 +125,12 @@ services:
       bucket-init:
         condition: service_completed_successfully
     networks:
-      - frontend
-      - backend
+      # Keep in sync with docker-compose.yml: single-record metrics alias
+      # (the service name would resolve twice — one A record per network).
+      frontend:
+        aliases:
+          - file-server-metrics
+      backend:
 
 networks:
   backend:

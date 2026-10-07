@@ -277,8 +277,13 @@ services:
       pgbouncer:
         condition: service_healthy
     networks:
-      - frontend
-      - backend
+      # Metrics alias: the service name resolves to an A record per network
+      # (frontend + backend), so Prometheus DNS-SD would scrape this
+      # container twice — targets use this single-record name instead.
+      frontend:
+        aliases:
+          - file-server-metrics
+      backend:
     mem_limit: 1g
     cpus: 1.5
     restart: unless-stopped
