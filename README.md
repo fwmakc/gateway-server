@@ -50,7 +50,7 @@ reference implementation for building NestJS microservices on a shared toolkit.
 | [file-server](https://github.com/fwmakc/file-server) | Files: uploads, ACL sharing, image processing, PDF; storage = local or S3 (config switch) | 3002 |
 | [event-server](https://github.com/fwmakc/event-server) | Event bus: pluggable transport, typed contracts | 3005 |
 | [message-server](https://github.com/fwmakc/message-server) | Background worker: queue, retry, templates | 3003 |
-| [chat-server](https://github.com/fwmakc/chat-server) | Realtime: WebSocket, Redis adapter (stub) | 3004 |
+| [chat-server](https://github.com/fwmakc/chat-server) | Realtime: channels & DMs over Socket.IO — JWT handshake, postgres history, redis fan-out | 3004 |
 | [api-server-scaffold](https://github.com/fwmakc/api-server-scaffold) | Template: 5-min bootstrap | — |
 
 ## When to Use This Stack
@@ -126,7 +126,7 @@ for your message queue.
 ### Structure
 
 - `docker-compose.yml` — production services (nginx, auth, event, api, file, message, postgres)
-- `docker-compose.override.yml` — dev additions (MailHog, Redis, chat-server, PostgreSQL port, verbose DB logging)
+- `docker-compose.override.yml` — dev additions (MailHog, PostgreSQL port, verbose DB logging)
 
 Docker Compose auto-merges both files. For production:
 ```bash
@@ -193,7 +193,7 @@ are copied locally during build — no GitHub fetch needed.
 | [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
 | [`file-server`](https://github.com/fwmakc/file-server) | File upload, ACL sharing, image/PDF | 3002 | — |
 | [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
-| [`chat-server`](https://github.com/fwmakc/chat-server) | WebSocket chat (Socket.IO) | 3004 | — |
+| [`chat-server`](https://github.com/fwmakc/chat-server) | Realtime chat: channels, DMs, presence (Socket.IO) | 3004 | [![Tests](https://github.com/fwmakc/chat-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/chat-server/actions/workflows/test.yml) |
 
 ### Core vs Domain
 
@@ -209,7 +209,7 @@ are copied locally during build — no GitHub fetch needed.
 **Optional** — enable as needed:
 - `file-server` — file upload, ACL sharing, image resize + PDF (local or S3 storage — a config switch)
 - `message-server` — email sending, subscribes to event-server webhooks
-- `chat-server` — real-time chat via Socket.IO (requires Redis for multi-instance adapter)
+- `chat-server` — realtime chat: channels & DMs over Socket.IO (JWT handshake, postgres history; uses the stack redis for the cross-replica adapter)
 
 ## Event Flow
 
@@ -302,11 +302,17 @@ Installed as `github:fwmakc/api-server-toolkit#v0.13.1`. In the monorepo Docker 
 | `/files` | file-server | upload/ACL/delete API |
 | `/uploads` | file-server | downloads — edge-cached, see below |
 | `/mail` | message-server | |
-| `/socket.io/` | chat-server (WebSocket upgrade) | |
+| `/chat` | chat-server | REST face: channels, membership, history, search, unread |
+| `/socket.io/` | chat-server (WebSocket upgrade) | live stream: messages, typing, presence |
 | Everything else (`/`) | api-server | |
 
 Rate limiting (per IP): auth endpoints 5 req/s, `/files` and general API
-10 req/s, `/uploads` 50 req/s (burst 100).
+10 req/s, `/uploads` 50 req/s (burst 100). The chat path has two dedicated
+budgets (see the `chat_limit` / `conn_limit` notes in nginx.conf): a
+handshake zone of 30 r/s burst 50 on `/socket.io/` — sized for a NAT office
+arrival wave, since every rejected handshake returns as a client retry — and
+200 concurrent WS per client IP (long-polling fallback clients hold 2
+connections each until they upgrade).
 
 ### Static downloads: rate zone + edge cache (/uploads)
 
@@ -376,7 +382,7 @@ docker compose up -d \
 | **message-server** | Yes | `QueueWorker` with `SKIP LOCKED` — no duplicate processing | Already safe |
 | **auth-server** | Yes | Stateless JWT — no shared store needed | Already fixed |
 | **file-server** | Yes — on the S3 backend | Local driver is single-instance (per-container volume); the S3 backend removes the limit (verified live: `--scale file-server=2` + SeaweedFS, upload on one replica served by both) | Flip `FILE_STORAGE=s3` (compose S3 profile) — configuration, not code |
-| **chat-server** | Limited | In-memory WS adapter; `ip_hash` keeps clients sticky | Add WS adapter for cross-instance broadcast |
+| **chat-server** | Yes | Postgres connections; redis pub/sub throughput | Redis adapter is built in (cross-replica rooms); scale with `--scale chat-server=N` behind the `ip_hash` upstream — verified by the wave-16 storm (`load-tests/results.md`) |
 
 ### PostgreSQL connection sizing
 
@@ -496,7 +502,7 @@ Before adding replicas:
     api-server-scaffold/ (template for new services)
     file-server/       (optional)
     message-server/    (optional)
-    chat-server/       (frozen — skeleton, not part of the compose stack)
+    chat-server/       (optional — realtime layer, part of the compose stack)
   ```
   See `clone-all.ps1` / `clone-all.sh` to clone everything in one command.
 
@@ -552,8 +558,15 @@ BASE=https://example.com ./smoke.sh # remote stack
 
 The script reads confirm codes and recorded events from Postgres, so it needs
 Docker access to the compose postgres (or an override, see the header comment).
-Exits non-zero with per-check FAIL lines when anything breaks — wire it into
-deploy pipelines as a post-deploy gate.
+Step 7 covers the chat edge (REST 401 + a full socket.io handshake over
+polling, expecting the `44 unauthorized` close). Exits non-zero with
+per-check FAIL lines when anything breaks — wire it into deploy pipelines as
+a post-deploy gate.
+
+Deeper live harnesses: `e2e-chat.mjs` (27 checks — WS auth, channels, DMs,
+fan-out, resume, kick-on-deactivate), `pentest-live.mjs` §4 (18 crafted-token
+and cross-user WS/REST checks), and the wave-16 WS storm with a replica kill
+(`load-tests/ws-chat-storm.mjs`, results in `load-tests/results.md`).
 
 ### PostgreSQL 16
 
@@ -576,7 +589,8 @@ In the base compose as the shared rate-limit store for auth-server
 (`THROTTLE_STORAGE=redis` — required for multi-replica auth: without it each
 replica enforces its own counter set and effective limits multiply by the
 replica count). Counters are ephemeral — persistence is intentionally off.
-(It originally shipped for chat-server's Socket.IO adapter, which is frozen.)
+It also carries chat-server's Socket.IO adapter and presence keys (prefix
+`chat:`) — the realtime layer is unfrozen since wave 16.
 
 ### MailHog
 
@@ -802,6 +816,7 @@ Each service has its own test suite run via GitHub Actions CI:
 | event-server | 33 | `npm test` (5 suites: events, subscribers, delivery, worker, auth) |
 | message-server | 33 | `npm test` (5 suites: webhooks, mail, queue, worker, subscriber) |
 | file-server | 52 | `npm test` (7 suites: handlers, service, orchestrator) |
+| chat-server | 51 | `npm test` (6 suites: service, retention, ws-auth, presence, rate-limit, webhooks) |
 
 Tests use real PostgreSQL (not mocked) with `dropSchema: true` + `synchronize: true` for clean state.
 
@@ -832,7 +847,7 @@ Each service versions **independently** (semver): a `vX.Y.Z` git tag marks the r
 | [auth-server](https://github.com/fwmakc/auth-server) | v0.14.0 |
 | [message-server](https://github.com/fwmakc/message-server) | v0.7.0 |
 | [file-server](https://github.com/fwmakc/file-server) | v0.8.3 |
-| [chat-server](https://github.com/fwmakc/chat-server) | v0.1.3 (frozen) |
+| [chat-server](https://github.com/fwmakc/chat-server) | v0.2.0 |
 | [api-server](https://github.com/fwmakc/api-server) | v0.9.0 |
 | [gateway-server](https://github.com/fwmakc/gateway-server) | v0.7.0 (infra) |
 | [api-server-scaffold](https://github.com/fwmakc/api-server-scaffold) | v0.1.5 |

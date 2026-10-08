@@ -25,17 +25,19 @@ Companion documents:
 | [file-server](https://github.com/fwmakc/file-server) | 3002 | Uploads/downloads, image processing, PDF generation, per-file ACL (ownership/sharing), local or S3 storage | `file_server` (ACL) | `/files`, `/uploads` |
 | [message-server](https://github.com/fwmakc/message-server) | 3003 | Outbound email: postgres-backed queue, retries with backoff, per-domain rate buckets, EJS templates, suppression list | `message_server` | none (`/mail` → 404) |
 | [event-server](https://github.com/fwmakc/event-server) | 3005 | Central event bus: typed contracts, HTTP webhook deliveries with retry + circuit breaker, tamper-evident audit store | `event_server` | none (internal only) |
+| [chat-server](https://github.com/fwmakc/chat-server) | 3004 | Realtime layer: channels & DMs over Socket.IO — JWT handshake (JWKS), postgres history, redis adapter, presence, unread cursors, `user.*`-driven kicks | `chat_server` | `/chat` (REST), `/socket.io/` (WS) |
 | nginx | 80/443 | Edge: TLS termination, routing, CORS allowlist, per-IP rate limiting, `/uploads` edge cache | — | all of the above |
 | postgres | 5432 | Single Postgres 16, one database per service, `init-databases.sh` on first boot | — | — |
 | pgbouncer | 5432 (internal) | Transaction-mode pooler — Postgres sees ~25 real connections regardless of replica count | — | — |
-| redis | 6379 | Shared rate-limit store for auth (`THROTTLE_STORAGE=redis`). Required for multi-replica auth; counters are ephemeral by design | — | — |
+| redis | 6379 | Shared rate-limit store for auth (`THROTTLE_STORAGE=redis`) + chat-server's socket.io adapter and presence keys (`chat:` prefix). Required for multi-replica auth and any chat replica count > 1; counters are ephemeral by design | — | — |
 | s3 (SeaweedFS) | 9000 | Object storage behind the S3 profile. Private by default; public/CDN mode is opt-in | — | prod: `https://s3.<domain>` subdomain |
 | auth-keys | — | One-shot job: generates the shared RS256 pair into the `auth_keys` volume (multi-replica-safe token validation) | — | — |
 | prometheus + grafana | 3000 | Monitoring profile (`--profile monitoring`): `/metrics` scrape every 15 s, 15 d retention | — | grafana UI only |
 
-Not deployed: `chat-server` (frozen skeleton, v0.1.3), `api-server-scaffold`
+Not deployed by default: `api-server-scaffold`
 (template for new services), `api-server-toolkit` (npm library baked into the
-images at build time).
+images at build time). Chat-server ships in the base compose since wave 16
+(remove the service block from docker-compose.yml if you don't need realtime).
 
 ## 2. How the services are wired
 
@@ -62,7 +64,7 @@ images at build time).
    │ pgbouncer   │      │ message-server│ → SMTP (real relay in prod)
    └──────┬──────┘      └───────────────┘
    ┌──────▼──────┐
-   │  postgres   │   redis (auth throttler)   s3/SeaweedFS (file backend)
+   │  postgres   │   redis (auth throttler, chat adapter)   s3/SeaweedFS (file backend)
    └─────────────┘
 ```
 
@@ -118,6 +120,8 @@ cp .env.example .env
 | `WEBHOOK_SECRET` (`openssl rand -hex 32`) | HMAC-signed bus deliveries (same value to event-server and every subscriber) |
 | `JWT_ISSUER` + `JWT_AUDIENCE` | binds tokens to your deployment; set identical stack-wide, roll out in one deploy |
 | `THROTTLE_STORAGE=redis` | mandatory the moment auth-server runs 2+ replicas — otherwise each replica enforces its own counters (effective limits × N) |
+| `WEBHOOK_SECRET` (same value) reaches chat-server too | chat subscribes to `user.*` deliveries and verifies the same HMAC signature; a mismatch silently kicks it off the bus (subscriber deactivates after 5 permanent failures) |
+| `CHAT_*` (see `.env.example`) | all optional with sane defaults: message length/attachment caps, per-socket rate buckets `30/10` (messages, joins), `2/1` (typing), retention days (unset = keep history forever). The nginx edge budgets (`chat_limit` handshake zone, `conn_limit` on `/socket.io/`) are already sized in both nginx configs |
 | `TWO_FACTOR_ENABLED` | off by default; enable if you offer TOTP/email-code 2FA |
 | SSO `*_CLIENT_ID/SECRET` | social login; absent = those providers fail closed |
 
@@ -217,6 +221,10 @@ Prerequisites per service:
   the HA run), shared JWT keys (the `auth-keys` volume — default in compose).
 - **api-server / event-server**: stateless, postgres via pgbouncer; safe to
   scale.
+- **chat-server**: stateless replicas — rooms/presence in redis, history in
+  postgres; scale with `--scale chat-server=N` behind the `ip_hash` upstream.
+  Verified under load: 500 sockets, replica killed mid-flood, 0 lost / 0
+  duplicated messages (wave-16 storm, `load-tests/results.md`).
 - **file-server**: scale **only** on the S3 backend — the local driver uses
   a per-container volume. Each replica subscribes to `user.*` events under
   its own hostname URL; after scaling up/down, prune dead per-replica
@@ -257,6 +265,7 @@ README "Production notes" sections.
 | 2026-10-07 | static edge cache | 30 r/s asset load: 64.5% → 0% 429; 11.4k r/s flood → file-server at 0.44% CPU |
 | 2026-10-08 | wave-14 full regression re-run (v0.32.0 stack) | baselines reproduced (17.3 logins/s, 361.7 read rps, ~52 files/s); identity storm (1000 users, 2FA enrolment) — throttle trips exactly at limit, 0 letters lost; activity storm — 7208/7208 answers, 0 duplicates, 4-replica scale 1318 rps; mailburst 1000 letters @ ~21.4/s, 0 lost |
 | 2026-10-08 | LMS case (waves 7–14) | production-shaped domain workload on the stack for six waves: capacity/overbooking races, moderation, per-replica event fan-out, role-grant propagation measured at 3.0 s / revoke 1.5 s |
+| 2026-10-08 | wave 16: chat realtime validation | chat-server unfrozen: e2e-chat 27/27 through the edge, pentest-live §4 18/18, 51 jest tests; WS storm — direct 500 sockets / 600 msgs and edge 150 / 200 with a **replica killed mid-flood → 0 lost, 0 live duplicates** (survivors recovered via reconnect + sync gap-fill); 3 edge fixes (handshake zone, per-IP WS conn limit, boot-registered chat metrics) |
 
 **Honest scope of that evidence:** every number above comes from a
 single-host Docker Compose stand (multi-replica yes — up to 4 replicas of a
@@ -286,8 +295,12 @@ record here. Treat the load numbers as per-core-reference, not SLA.
 6. **The S3 bucket is private by default.** Public/CDN mode is opt-in; even
    then, privacy is enforced at the `/uploads` proxy (ACL + 404-masking),
    not at the bucket.
-7. **chat-server is frozen** (v0.1.3 skeleton) and not part of the compose
-   stack.
+7. **Chat sends are commit-on-ack.** `message.send` persisting is confirmed
+   by the WS ack; sends issued while disconnected are lost client-side —
+   clients retry with the same `clientId` (idempotent). Handshake and
+   per-IP budgets live at the nginx edge; per-socket buckets in chat-server
+   (`CHAT_RATE_*`). Restores took a wave-16 storm: 0 lost / 0 duplicated
+   across a replica kill.
 
 ## 9. Quick reference
 
@@ -311,7 +324,7 @@ docker compose exec nginx sh -c 'rm -rf /var/cache/nginx/uploads/*'
 |------|-------|----------|
 | 80 / 443 | nginx | yes (host) |
 | 3000 | Grafana (monitoring profile) | yes (host) |
-| 3001/3002/3003/3005/5000 | auth / file / message / event / api | internal networks only |
+| 3001/3002/3003/3004/3005/5000 | auth / file / message / chat / event / api | internal networks only |
 | 5432 | postgres via pgbouncer | dev override only |
 | 6379 | redis | backend network only |
 | 9000 | SeaweedFS S3 | dev: `127.0.0.1:9000` · prod: `s3.<domain>` edge route |
