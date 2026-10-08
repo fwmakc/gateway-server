@@ -381,7 +381,7 @@ services (DB_POOL_MAX=50 each) → pgbouncer:5432 → postgres:5432
 - **Pool mode**: `transaction` — connections returned to pool after each transaction
 - **Max client connections**: 1000 (services can open many, PgBouncer multiplexes)
 - **Pool size**: 25 per database (PostgreSQL sees only 25 real connections)
-- **Query timeout**: 10s — kills slow/stuck queries, prevents connection exhaustion
+- **Query timeout**: disabled (`QUERY_TIMEOUT=0`) — the old 10s kill tore down client connections mid-request under load (random `QueryRunnerAlreadyReleasedError` 500s everywhere); runaway-query control belongs to postgres `statement_timeout` (60s, clean query error, no socket break)
 - **Auto-configured**: all databases routed via wildcard `*`
 
 Services connect to `pgbouncer:5432` instead of `postgres:5432`. No code changes needed — PgBouncer is transparent.
@@ -395,7 +395,7 @@ Multiple layers prevent connection exhaustion and resource flooding:
 | **nginx `limit_conn`** | Max 10 simultaneous connections per IP on auth endpoints | `limit_conn conn_limit 10` |
 | **nginx `limit_req`** | 5 r/s on auth, 10 r/s on API (per IP) | `limit_req zone=auth_limit burst=10` |
 | **nginx `proxy_read_timeout`** | Auth endpoints: 10s (was 300s) | Prevents slow-request holding |
-| **PgBouncer `QUERY_TIMEOUT`** | 10s — kills stuck queries | `QUERY_TIMEOUT=10` |
+| **Postgres `statement_timeout`** | 60s — fails a runaway query cleanly (no connection teardown) | `-c statement_timeout=60000` |
 | **Throttler (auth-server)** | 10/min on `/token`, 5/min on `/login` | `@nestjs/throttler` |
 | **Token rotation** | Old refresh token revoked on every refresh | Prevents replay flooding |
 
@@ -496,6 +496,10 @@ PostgreSQL at `localhost:5432`.
 docker compose -f docker-compose.yml up -d --build
 ```
 
+Full production runbook — service registry, wiring and trust boundaries,
+secrets, TLS, upgrades, scaling prerequisites, day-2 operations, and the
+measured verification record: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
 ### Environment Variables
 
 **Required** — `docker compose` refuses to start without them (no insecure defaults):
@@ -542,7 +546,11 @@ Port `5432` exposed in dev override only.
 
 ### Redis 7
 
-Frozen together with chat-server (was used for its Socket.IO adapter). Returns when chat MVP is built.
+In the base compose as the shared rate-limit store for auth-server
+(`THROTTLE_STORAGE=redis` — required for multi-replica auth: without it each
+replica enforces its own counter set and effective limits multiply by the
+replica count). Counters are ephemeral — persistence is intentionally off.
+(It originally shipped for chat-server's Socket.IO adapter, which is frozen.)
 
 ### MailHog
 
@@ -779,7 +787,7 @@ Each service versions **independently** (semver): a `vX.Y.Z` git tag marks the r
 
 - Repos on `0.x` (toolkit, api/auth/file/message-server, gateway): the minor carries breaking changes while the stack is in development; patch = fixes.
 - `event-server` follows a `1.x` line (stable event-contract surface).
-- Consumers pin sources by tag: `"api-server-toolkit": "github:fwmakc/api-server-toolkit#v0.32.0"`, `"event-server": "github:fwmakc/event-server#v1.5.0"`.
+- Consumers pin sources by tag: `"api-server-toolkit": "github:fwmakc/api-server-toolkit#v0.32.0"`, `"event-server": "github:fwmakc/event-server#v1.6.0"`.
 
 ### Breaking-change procedure
 
@@ -789,7 +797,7 @@ Each service versions **independently** (semver): a `vX.Y.Z` git tag marks the r
 
 ### Current versions
 
-> Synced across all repos on 2026-10-07 (wave 13). Source of truth: the `v*` git tags at each repo HEAD.
+> Synced across all repos on 2026-10-08 (wave 15). Source of truth: the `v*` git tags at each repo HEAD.
 
 | Service | Version |
 |---------|---------|
