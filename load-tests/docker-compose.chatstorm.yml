@@ -1,0 +1,53 @@
+# Chat-storm override (wave 16): raised auth-throttler and chat rate
+# buckets so the storm measures the WS fan-out ceiling instead of the
+# brute-force protection, plus a one-shot storm-runner container that can
+# reach every replica directly (cross-replica fan-out phase).
+#
+#   docker compose -f docker-compose.yml -f load-tests/docker-compose.chatstorm.yml up -d --scale chat-server=2
+#
+# NOT for production (or any publicly reachable deployment): with these
+# values neither the auth throttler nor the chat buckets limit anything.
+# Restore the production posture afterwards:
+#
+#   docker compose up -d --scale chat-server=1
+#
+# Unlike docker-compose.loadtest.yml this does NOT swap the nginx config —
+# the storm hammers the real edge (chat_limit handshake zone included),
+# the script ramps connections to stay under it.
+
+services:
+  auth-server:
+    environment:
+      - THROTTLE_DEFAULT_LIMIT=100000
+      - THROTTLE_AUTH_LIMIT=100000
+      - THROTTLE_AUTH_STRICT_LIMIT=100000
+      - THROTTLE_TOKEN_LIMIT=100000
+
+  chat-server:
+    environment:
+      - CHAT_RATE_MESSAGES=100000/10
+      - CHAT_RATE_JOINS=100000/10
+      - CHAT_RATE_TYPING=100000/1
+
+  # One-shot runner for the direct phase: half of the clients connect to
+  # each replica by container name, so messages published on replica 1
+  # must cross the redis adapter to reach replica 2 subscribers. The docker
+  # socket is mounted read-only so CHAOS=1 can stop/start replicas from
+  # inside (docker-cli is installed by the run command below; read-only is
+  # enough — the CLI talks to the engine API over the socket).
+  #   docker compose -f docker-compose.yml -f load-tests/docker-compose.chatstorm.yml \
+  #     run --rm --entrypoint sh storm-runner \
+  #     -c "apk add -q docker-cli && npm i socket.io-client@4 --no-save --loglevel=error && \
+  #         DIRECT=1 CLIENTS=500 MSGS=600 CHAOS=1 BASE=http://nginx:80 node ws-chat-storm.mjs"
+  storm-runner:
+    image: node:24-alpine
+    working_dir: /storm
+    volumes:
+      # relative paths resolve against the project dir (the FIRST -f file),
+      # not this file's directory
+      - ./load-tests/ws-chat-storm.mjs:/storm/ws-chat-storm.mjs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - frontend
+      - backend
+    restart: "no"

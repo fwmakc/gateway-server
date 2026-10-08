@@ -307,3 +307,70 @@ docker run --rm --network gateway-server_frontend -v "$PWD/load-tests:/scripts" 
   grafana/k6 run /scripts/static.js \
   -e TARGET_URL=http://nginx/uploads/site-assets/article.png -e RATE=30 -e DURATION=30s
 ```
+
+## WS chat storm — 500 sockets, replica kill, 0 lost (2026-10-08, wave 16)
+
+The chat-server wave-16 validation: JWT-authenticated socket.io clients, one
+publisher flooding a shared channel, and a strict fan-out invariant — every
+receiver ends with exactly MSGS unique ids. Runner: `load-tests/ws-chat-storm.mjs`
+(two phases, see the file header); ceiling via
+`load-tests/docker-compose.chatstorm.yml` + `seed-chat-storm.sql`
+(load_0..load_599 pool, cost-10 hash).
+
+| Run | Result |
+|-----|--------|
+| **direct** (cross-replica, 250 sockets per replica through the redis adapter) 500 clients / 600 msgs / CHAOS kill of the holder replica mid-flood | **INVARIANT HELD** — 500/500 fully delivered, 0 lost, 0 live dups; survivors of the killed replica recovered via reconnect + sync gap-fill (4 sync calls each); fan-out latency p50/p95/max = 1/2/4 ms |
+| **edge** (nginx + ip_hash) 150 clients / 200 msgs / CHAOS kill of the ip_hash holder | **INVARIANT HELD** — 150/150, 0 lost, 0 live dups; 100 clients got everything live, the rest via reconnect + sync; `dup_sync_recovery=123` is the by-design overlap of gap-fill windows (clients dedupe by id) |
+
+Three production findings (the storm paid for itself three times over):
+
+1. **Handshake pinwheel.** The original `chat_limit` zone (10 r/s, burst 20)
+   pinwheels under a burst of real handshakes: every rejected handshake
+   returns as a socket.io reconnection, so saturation feeds itself — measured
+   **17 868 "limiting requests" rejections in 5 minutes** with ~17000 excess.
+   Raised to **30 r/s burst 50** (both nginx configs): an office arriving over
+   NAT (~100 users × 4-5 polling requests each) is admitted while floods
+   still hit the same zone.
+2. **conn_limit vs polling fallback.** `limit_conn 100` on `/socket.io/`
+   rejected the 500-socket storm (46 "limiting connections" hits) — and
+   long-polling clients hold **2 connections each** until they upgrade, so
+   real capacity is half the number. Raised to **200** (both configs).
+3. **Metrics series appeared only with the first WS connection**
+   (lazy counter registration): a restarted replica exposed no `chat_ws_*`
+   series at all — Prometheus dashboards break on every deploy. Fixed in
+   chat-server: counters are touched at boot (`onModuleInit`), verified
+   zero-valued series on both fresh replicas.
+
+Contract clarifications measured along the way (documented for clients):
+
+- `message.send` during a connection outage is **not durable by design** —
+  the ack is the commit point. An honest client retries with the same
+  `clientId` (idempotency: the retry returns the same row, no second
+  broadcast). Without retry we measured 4/200 sends lost in a replica-kill
+  window; the storm now retries and holds the invariant.
+- Sync cursors are **global message ids** (per-channel ordering, shared id
+  sequence across channels). A test harness that assumes ids start at 1 will
+  loop on cursor 0 — verified against live data (channel window 521..1120):
+  `sync(cursor=240)` correctly returned the channel's first 100 messages
+  above the cursor, `truncated=true`.
+
+Reproduce:
+
+```bash
+docker compose -f docker-compose.yml -f load-tests/docker-compose.chatstorm.yml \
+  up -d --build --scale chat-server=2
+node load-tests/seed-chat-storm.sql   # psql the pool in (idempotent)
+CLIENTS=150 MSGS=200 CHAOS=1 RAMP_MS=200 node load-tests/ws-chat-storm.mjs          # edge
+docker compose -f docker-compose.yml -f load-tests/docker-compose.chatstorm.yml \
+  run --rm --entrypoint sh storm-runner \
+  -c "apk add -q docker-cli && npm i socket.io-client@4 --no-save --loglevel=error && \
+      DIRECT=1 CLIENTS=500 MSGS=600 CHAOS=1 RAMP_MS=90 BASE=http://nginx:80 node ws-chat-storm.mjs"
+docker compose up -d --scale chat-server=1   # restore production posture
+```
+
+Notes for reproducers: logins self-pace against the production `auth_limit`
+zone (the 500-login phase takes ~90 s at ~5.5/s — the edge stays production
+in ceiling mode); REST joins pace under `api_limit` (900 ms × 8 workers);
+CHART of the edge handshake wave lives in the `chat_limit` comment in
+nginx.conf. The killed replica is restarted BEFORE the convergence phase so
+its clients reconnect and sync fills only the true gap.
