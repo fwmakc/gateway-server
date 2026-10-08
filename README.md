@@ -47,7 +47,7 @@ reference implementation for building NestJS microservices on a shared toolkit.
 |---------|---------|------|
 | [auth-server](https://github.com/fwmakc/auth-server) | Auth: JWT/JWKS, SSO, event-driven lifecycle | 3001 |
 | [api-server](https://github.com/fwmakc/api-server) | Domain CRUD: EntityController, access levels | 5000 |
-| [file-server](https://github.com/fwmakc/file-server) | Stateless: uploads, image processing, no DB | 3002 |
+| [file-server](https://github.com/fwmakc/file-server) | Files: uploads, ACL sharing, image processing, PDF; storage = local or S3 (config switch) | 3002 |
 | [event-server](https://github.com/fwmakc/event-server) | Event bus: pluggable transport, typed contracts | 3005 |
 | [message-server](https://github.com/fwmakc/message-server) | Background worker: queue, retry, templates | 3003 |
 | [chat-server](https://github.com/fwmakc/chat-server) | Realtime: WebSocket, Redis adapter (stub) | 3004 |
@@ -65,7 +65,7 @@ reference implementation for building NestJS microservices on a shared toolkit.
 **Consider alternatives if:**
 
 - You need multi-tenancy (`tenant_id` scoping) — requires forking the toolkit
-- You need >1000 events/sec — switch the event bus to Kafka (the `IEventClient` interface supports this)
+- You need >1000 events/sec — write a `KafkaEventClient` adapter behind the existing `IEventClient` interface (one class, one DI rebinding; publishing call-sites don't change)
 - You want a community-supported framework with paid support — this is a fork-first codebase
 
 See [toolkit Limitations](https://github.com/fwmakc/api-server-toolkit#limitations) and
@@ -81,9 +81,14 @@ Forking is the enterprise pattern (internal Spring forks, Keycloak forks).
 
 ### "Only `isSuperuser` for admin?"
 
-Set `SUPERUSER_FIELD=role` and `SUPERUSER_VALUE=admin` in your `.env`. Works with any
-JWT field and value(s). For full RBAC, add `@UseGuards(RbacGuard)` — the 5
-access levels are CRUD presets, not a security model. See
+`SUPERUSER_FIELD=role` + `SUPERUSER_VALUE=admin` in `.env` makes any JWT
+field the admin check. Roles beyond that need **no custom guard**: the
+access model takes arbitrary role names — `who: ['editor', 'curator']` on
+any operation or field rule, with per-role row scopes and forced filters.
+Roles are data (assigned in auth-server, propagated to consumers within
+seconds via `user.roles_changed`; measured live: role revoke → 403 in
+1.5 s). A custom guard is only for a per-action permissions matrix, not
+for roles. See
 [toolkit FAQ](https://github.com/fwmakc/api-server-toolkit#faq-addressing-common-concerns).
 
 ### "Hardcoded to `account` table?"
@@ -105,10 +110,16 @@ microservices when you need to, not before.
 
 ### "HTTP webhooks instead of Kafka?"
 
-`IEventClient` is transport-agnostic. `HttpEventClient` needs no broker — zero
-ops overhead. When you need Kafka throughput, implement `KafkaEventClient` —
-services don't change. The event-server is an abstraction layer, not a
-replacement for your message queue.
+No rewrite — an **adapter swap**. Every publisher depends on the
+`IEventClient` DI token, not on an implementation. `HttpEventClient` ships
+stock (no broker, zero ops overhead). If Kafka throughput is ever needed,
+you write a `KafkaEventClient` implementing the same interface and rebind
+one provider — publishing call-sites stay untouched, and the typed
+contracts (`event-server/contracts`) are transport-independent, so payload
+schemas survive the swap. (Honest caveat: subscribers receive over HTTP
+webhooks today; a Kafka deployment swaps that delivery leg for topic
+consumers.) The event-server is an abstraction layer, not a replacement
+for your message queue.
 
 ## Docker Compose
 
@@ -180,7 +191,7 @@ are copied locally during build — no GitHub fetch needed.
 | [`api-server-toolkit`](https://github.com/fwmakc/api-server-toolkit) | CRUD engine, guards, decorators, bootstrap(), HealthModule | — | — |
 | [`api-server-scaffold`](https://github.com/fwmakc/api-server-scaffold) | Minimal template for new services (explicit main.ts) | — | — |
 | [`api-server`](https://github.com/fwmakc/api-server) | Domain CRUD entities (reference: persons, posts) | 5000 | [![Tests](https://github.com/fwmakc/api-server/actions/workflows/test.yml/badge.svg)](https://github.com/fwmakc/api-server/actions/workflows/test.yml) |
-| [`file-server`](https://github.com/fwmakc/file-server) | File upload, image resize | 3002 | — |
+| [`file-server`](https://github.com/fwmakc/file-server) | File upload, ACL sharing, image/PDF | 3002 | — |
 | [`message-server`](https://github.com/fwmakc/message-server) | Email notifications (subscribes to events) | 3003 | — |
 | [`chat-server`](https://github.com/fwmakc/chat-server) | WebSocket chat (Socket.IO) | 3004 | — |
 
@@ -196,7 +207,7 @@ are copied locally during build — no GitHub fetch needed.
 - `api-server` — defines project-specific entities. The reference implementation includes `persons`, `posts`, `categories`, `tags`. Replace these with your own
 
 **Optional** — enable as needed:
-- `file-server` — file upload + resize
+- `file-server` — file upload, ACL sharing, image resize + PDF (local or S3 storage — a config switch)
 - `message-server` — email sending, subscribes to event-server webhooks
 - `chat-server` — real-time chat via Socket.IO (requires Redis for multi-instance adapter)
 
@@ -229,33 +240,48 @@ auth-server                    event-server                   message-server
 
 ## Access Control Model
 
-Five independent restriction levels per CRUD operation. Each operation (create, read, update, delete) gets its **own** level — they are configured independently and are **not cumulative**.
-
-| Level | Authentication | Row scoping |
-|-------|---------------|-------------|
-| `public` | Token optional | None |
-| `account` | Token required (401) | None — sees all records |
-| `owner` | Token required (401) | `WHERE account.id = caller.id` |
-| `admin` | Token required (401) | 403 if `!isSuperuser` |
-| `closed` | Route not generated | — |
-
-**Full documentation**: [api-server-toolkit/README.md — Access Control Model](https://github.com/fwmakc/api-server-toolkit/blob/master/README.md#access-control-model)
-
-Quick example:
+Deny by default. The general mechanism is **access rules** — per CRUD
+operation, per field, per relation. A rule says *who* (arbitrary role
+names), *which rows* (scope), and *with which forced conditions* (filter);
+the first matching rule defines the access. No rules for an operation →
+the route doesn't exist (404). Nothing matches → 403.
 
 ```typescript
 @EntityController({
   name: "posts",
   dto: PostDto,
   entity: PostEntity,
+  relations: ["tags", "category", "account"],
   operations: {
-    create: "account",
-    read: "public",
-    update: "owner",
-    delete: "superuser",
+    read: [
+      { who: ["public"], filter: { isPublished: true } }, // anonymous: published only
+      { who: ["authenticated"], scope: { owner: "account.id" } },
+      { who: ["editor"] },                                // roles are plain strings
+      { who: ["admin"] },
+    ],
+    create: [{ who: ["authenticated"], scope: { owner: "account.id" } }],
+    delete: [{ who: ["admin"] }],
+  },
+  fields: {
+    secretNotes: { response: [{ who: ["editor"] }] },     // field-level, same rule shape
   },
 })
 ```
+
+- **Roles are data, not code**: assign them in auth-server; consumers pick
+  the change up within seconds via `user.roles_changed` (measured live:
+  role revoke → 403 in 1.5 s). Adding a role requires **no new guards**.
+- **Pseudo-roles**: `public` (anonymous) and `authenticated` (any logged-in
+  account) are synthesized; `superuser` is a global bypass (configurable
+  via `SUPERUSER_FIELD`/`SUPERUSER_VALUE`).
+- **Scopes**: `all`, `{ owner: "col" }` (stamped from the caller on create),
+  `{ tenant: "col" }`; a rule's `filter` forces read conditions over client
+  input.
+- **Level presets** (`public`, `account`, `tenant`, `owner`, `superuser`,
+  `closed`) remain as shorthand for simple CRUD — each operation still gets
+  its own configuration, and presets are **not cumulative**.
+
+**Full documentation**: [api-server-toolkit/README.md — Security model: deny by default](https://github.com/fwmakc/api-server-toolkit/blob/master/README.md#security-model-deny-by-default)
 
 ## api-server-toolkit
 
@@ -349,7 +375,7 @@ docker compose up -d \
 | **event-server** | Yes | `FOR UPDATE SKIP LOCKED` — no duplicate processing | Already safe |
 | **message-server** | Yes | `QueueWorker` with `SKIP LOCKED` — no duplicate processing | Already safe |
 | **auth-server** | Yes | Stateless JWT — no shared store needed | Already fixed |
-| **file-server** | No | Local disk (`uploads_data` volume per container) | Move to S3/MinIO |
+| **file-server** | Yes — on the S3 backend | Local driver is single-instance (per-container volume); the S3 backend removes the limit (verified live: `--scale file-server=2` + SeaweedFS, upload on one replica served by both) | Flip `FILE_STORAGE=s3` (compose S3 profile) — configuration, not code |
 | **chat-server** | Limited | In-memory WS adapter; `ip_hash` keeps clients sticky | Add WS adapter for cross-instance broadcast |
 
 ### PostgreSQL connection sizing
