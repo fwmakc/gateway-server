@@ -347,6 +347,71 @@ services:
     cpus: 1.0
     restart: unless-stopped
 
+  # Realtime chat (channels + DMs over Socket.IO). JWT-authenticated WS
+  # handshake against auth-server's JWKS; history/membership in postgres.
+  chat-server:
+    build:
+      context: ..
+      dockerfile: chat-server/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - LOG_FORMAT=json
+      - SERVICE_NAME=chat-server
+      - IP=0.0.0.0
+      - PORT=3004
+      - DB_TYPE=postgres
+      - DB_HOST=pgbouncer
+      - DB_PORT=5432
+      - DB_NAME=chat_server
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
+      - AUTH_SERVER_URL=http://auth-server:3001
+      - JWT_ISSUER=${JWT_ISSUER:-}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # WS fan-out across replicas (--scale chat-server=N) + shared presence
+      # keys. Single-replica boots work without it (in-memory adapter).
+      - REDIS_URL=redis://redis:6379
+      # user.deleted/deactivated/roles_changed subscription: cluster-wide
+      # socket kicks + membership purge. No WEBHOOK_URL — per-replica
+      # hostname subscription (like file-server), HMAC-signed deliveries.
+      - EVENT_SERVER_URL=http://event-server:3005
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      # Domain tuning (defaults): body ≤4096, ≤10 attachments,
+      # 30 msgs + 30 joins per 10s per socket, 2 typing/s,
+      # 0 = history kept forever, tombstones expire after 7 days
+      - CHAT_MESSAGE_MAX_LEN=${CHAT_MESSAGE_MAX_LEN:-4096}
+      - CHAT_MESSAGE_MAX_ATTACHMENTS=${CHAT_MESSAGE_MAX_ATTACHMENTS:-10}
+      - CHAT_RATE_MESSAGES=${CHAT_RATE_MESSAGES:-30/10}
+      - CHAT_RATE_JOINS=${CHAT_RATE_JOINS:-30/10}
+      - CHAT_RATE_TYPING=${CHAT_RATE_TYPING:-2/1}
+      - CHAT_MESSAGE_RETENTION_DAYS=${CHAT_MESSAGE_RETENTION_DAYS:-0}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3004/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      auth-server:
+        condition: service_healthy
+      event-server:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      # Metrics alias: single DNS record so Prometheus DNS-SD scrapes once
+      # per scrape target regardless of replicas (see file-server note).
+      frontend:
+        aliases:
+          - chat-server-metrics
+      backend:
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
   # ═══════════════════════════════════════════════════════════════
   # INFRASTRUCTURE
   # ═══════════════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-ssl/*.pem
-ssl/*.key
-ssl/*.crt
-!ssl/.gitkeep
+*.pem
+*.key
+*.crt
+!.gitkeep

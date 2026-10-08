@@ -2,6 +2,7 @@
 *.log
 .DS_Store
 tmp/
+node_modules/
 
 # load-test artifacts
 load-tests/out/

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-# E2E smoke: auth → api → event through the running stack.
+# E2E smoke: auth → api → chat → event through the running stack.
 #
 # Verifies the full chain with one fresh user:
 #   1. every service reports healthy
@@ -9,7 +9,8 @@
 #   4. POST /account/methods/login           (JWT issued)
 #   5. GET /account/self with the token      (JWT accepted)
 #   6. GET /posts/find                       (nginx → api → DB)
-#   7. user.registered / user.confirmed land in event_server.events
+#   7. chat REST alive behind nginx, WS handshake rejects anonymous
+#   8. user.registered / user.confirmed land in event_server.events
 #
 # Usage:
 #   ./smoke.sh                       # through nginx: BASE=http://localhost (auth+api checked)
@@ -30,6 +31,7 @@ set -uo pipefail
 BASE="${BASE:-http://localhost}"
 AUTH_BASE="${AUTH_BASE:-$BASE}"
 API_BASE="${API_BASE:-$BASE}"
+CHAT_BASE="${CHAT_BASE:-$BASE}"
 EMAIL="smoke_$(date +%s)_$RANDOM@test.local"
 PASSWORD='SmokePass123!'
 EVENT_WAIT="${EVENT_WAIT:-8}"
@@ -91,7 +93,25 @@ step "6. api-server through the gateway (GET /posts/find)"
 CODE="$(status_of "$API_BASE/posts/find")"
 [ "$CODE" = "200" ] && pass "GET /posts/find → 200" || fail "GET /posts/find → $CODE (expected 200)"
 
-step "7. Events recorded (event_server DB, waits ${EVENT_WAIT}s for the bus)"
+# chat-server has no edge-visible /health (its routes live under /chat),
+# so liveness is proven by the guard's 401 and the WS handshake rejection.
+# The rejection lands on the socket.io CONNECT packet: open an engine.io
+# session (GET → sid), POST the socket.io connect frame, then the next
+# poll carries the verdict `44{"message":"unauthorized"}`.
+step "7. chat-server behind the gateway"
+CODE="$(status_of "$CHAT_BASE/chat/channels")"
+[ "$CODE" = "401" ] && pass "GET /chat/channels anonymous → 401 (routed, guard on)" || fail "GET /chat/channels → $CODE (expected 401)"
+SID="$(curl -s "$CHAT_BASE/socket.io/?EIO=4&transport=polling" | sed -n 's/.*"sid":"\([^"]*\)".*/\1/p')"
+HANDSHAKE=""
+if [ -n "$SID" ]; then
+  curl -s -X POST "$CHAT_BASE/socket.io/?EIO=4&transport=polling&sid=$SID" --data '40' > /dev/null
+  HANDSHAKE="$(curl -s "$CHAT_BASE/socket.io/?EIO=4&transport=polling&sid=$SID")"
+fi
+printf '%s' "$HANDSHAKE" | grep -q '^44' \
+  && pass "WS handshake without token rejected (44 unauthorized)" \
+  || fail "WS handshake → ${HANDSHAKE:-no sid} (expected 44 unauthorized)"
+
+step "8. Events recorded (event_server DB, waits ${EVENT_WAIT}s for the bus)"
 sleep "$EVENT_WAIT"
 REGISTERED="$(psql event_server "SELECT count(*) FROM events WHERE pattern = 'user.registered' AND payload::text LIKE '%$EMAIL%'")"
 CONFIRMED="$(psql event_server "SELECT count(*) FROM events WHERE pattern = 'user.confirmed' AND payload::text LIKE '%$EMAIL%'")"
@@ -114,7 +134,7 @@ fi
 # ─────────────────────────────────────────────────────────────────
 FILE_BASE="${FILE_BASE:-$BASE}"
 
-step "8. File storage: s3 backend"
+step "9. File storage: s3 backend"
 CODE="$(status_of "$FILE_BASE/health/storage")"
 if [ "$CODE" = "200" ]; then
   STORAGE="$(curl -s "$FILE_BASE/health/storage")"
@@ -133,7 +153,7 @@ fi
 PAYLOAD="smoke-s3-$(date +%s)"
 printf '%s' "$PAYLOAD" > "smoke_s3_$$.txt"
 
-step "9. Presigned upload (client → bucket direct)"
+step "10. Presigned upload (client → bucket direct)"
 PRESIGN_RES="$(curl -s -X POST "$FILE_BASE/files/presign/upload" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"filename\":\"smoke_s3_$$.txt\",\"folder\":\"smoke\"}")"
@@ -158,7 +178,7 @@ else
   fail "presign/upload → $PRESIGN_RES"
 fi
 
-step "10. Proxy upload (multipart through the gateway)"
+step "11. Proxy upload (multipart through the gateway)"
 UP_RES="$(curl -s -X POST "$FILE_BASE/files/upload" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@smoke_s3_$$.txt;type=text/plain" -F 'folder=smoke')"

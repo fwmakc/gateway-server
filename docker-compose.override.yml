@@ -11,9 +11,10 @@ services:
     environment:
       - DB_LOG=true
 
-  # chat-server заморожен (v0.1.0: нет JWT на WebSocket, Redis-адаптера и
-  # хранения; см. дорожную карту, волна 3). Вместе с ним заморожен redis —
-  # он был нужен только chat'у. Вернуть оба при реализации MVP.
+  # chat-server is live since wave 16 (JWT handshake, redis adapter,
+  # postgres history) — the service block now lives in the base compose.
+  # redis is likewise un-frozen: auth-server uses it for shared throttle
+  # counters, chat-server for the WS adapter.
 
   mailhog:
     image: mailhog/mailhog:latest
